@@ -107,9 +107,9 @@ sector_mins = {
     'Utilities': 0.01,
     'Logistics': 0.01,
     'Consumer': 0.01,
-    'Commodities': 0.02,  # At least 1% in Commodities
+    'Commodities': 0.02,  # At least 2% in Commodities
     'Broad Market': 0.01,
-    'Cash': 0.05          # At least 1% in Cash
+    'Cash': 0.05          # At least 5% in Cash
 }
 
 # --- 4. Define Benchmark & Paths ---
