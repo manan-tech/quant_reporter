@@ -1,4 +1,4 @@
-# `quant_reporter`
+# Quant Reporter
 
 A Python library for advanced quantitative portfolio analysis, optimization, and validation.
 
@@ -35,24 +35,25 @@ This package is designed to be used in two ways:
 
 ```bash
 pip install quant-reporter
+```
 
-2. For Development (Local Install)
-
+### 2. For Development (Local Install)
+```
 git clone https://github.com/manan-tech/quant_reporter.git
 cd quant_reporter
 pip install -e .[test]
-
+```
 
 ⸻
 
-Quickstart: The Main Report Functions
+## Quickstart: The Main Report Functions
 
 This package provides two main report generators: a simple one and an advanced one.
 
-1. create_full_report
+### 1. create_full_report
 
 Generates a simple performance report for a single asset or your user-defined portfolio.
-
+```
 import quant_reporter as qr
 import os
 from datetime import datetime, timedelta
@@ -69,14 +70,16 @@ qr.create_full_report(
     end_date=today,
     filename=os.path.join(desktop, 'My_Simple_Report.html')
 )
+```
 
-2. create_combined_report (Recommended)
+### 2. create_combined_report (Recommended)
 
 This is the most powerful, professional-grade report. It performs a full walk-forward validation by:
 	1.	Analyzing your user portfolio over the full period.
 	2.	Training the optimizers on your train_start to train_end data.
 	3.	Testing those optimized portfolios on the out-of-sample data (train_end to today).
 
+```
 import quant_reporter as qr
 import os
 from datetime import datetime, timedelta
@@ -92,16 +95,17 @@ qr.create_combined_report(
     filename=os.path.join(desktop, 'My_Combined_Report.html'),
     risk_free_rate=0.065
 )
-
+```
 
 ⸻
 
-Advanced Usage: As a Library
+## Advanced Usage: As a Library
 
 You can import and use all the core functions individually to build custom analyses.
 
 Example: Get data and find a Min Vol portfolio
 
+```
 import quant_reporter as qr
 import pandas as pd
 
@@ -135,7 +139,7 @@ print(weights_df[weights_df > 0].map(lambda x: f"{x:.2%}"))
 # 5. Create and show a plot
 fig = qr.plot_correlation_heatmap(log_returns)
 # fig.show() # Uncomment to display
-
+```
 
 ⸻
 
@@ -143,6 +147,7 @@ Full Example: All Reports with Sector Constraints
 
 Here is a complete, copy-pasteable example using the complex US portfolio from our discussion. It runs both main reports and includes display names and sector constraints.
 
+```
 import quant_reporter as qr
 import os
 import traceback
@@ -280,14 +285,15 @@ try:
 except Exception as e:
     print(f"An error occurred: {e}")
     traceback.print_exc()
+```
 
-API & Function Reference
+## API & Function Reference
 
-Main Report Functions
+### Main Report Functions
 	•	create_full_report(assets, benchmark_ticker, start_date, end_date, ...)
 	•	create_combined_report(portfolio_dict, benchmark_ticker, train_start, train_end, ...)
 
-Key Parameters:
+### Key Parameters:
 	•	assets (dict or str): Either a portfolio dictionary (e.g., {'AAPL': 0.5}) or a single ticker string (e.g., 'AAPL').
 	•	portfolio_dict (dict): A dictionary of tickers and their weights.
 	•	benchmark_ticker (str): The ticker for the benchmark (e.g., 'SPY').
@@ -297,9 +303,9 @@ Key Parameters:
 	•	sector_caps (dict): Optional. Sets maximum allocation for sectors (e.g., {'Tech': 0.4}).
 	•	sector_mins (dict): Optional. Sets minimum allocation for sectors (e.g., {'Tech': 0.05}).
 
-Core Library Functions
+## Core Library Functions
 
-You can import these directly for custom scripts.
+### You can import these directly for custom scripts.
 	•	get_data(tickers, start_date, end_date): Fetches and cleans price data.
 	•	calculate_metrics(data, asset_col, benchmark_col, ...): Returns (metrics_dict, plot_data_dict).
 	•	get_optimization_inputs(price_data): Returns (mean_returns, cov_matrix, log_returns).
@@ -309,12 +315,12 @@ You can import these directly for custom scripts.
 	•	plot_risk_contribution(...): Returns a Plotly Figure object.
 	•	(…and all other plot_ functions in plotting.py and opt_plotting.py)
 
-Future Development
+### Future Development
 	•	Monte Carlo Simulation: Add a create_monte_carlo_report to simulate future returns.
 	•	Brinson Attribution: Add performance attribution (Allocation vs. Selection).
 	•	Rolling Validation: Implement a true “walk-forward” optimization with periodic rebalancing.
 
-License
+## License
 
 This project is licensed under the MIT License.
 
