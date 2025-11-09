@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quant_reporter"
+version = "1.0.2"
+authors = [
+  { name="Manan Bansal", email="mananpbansal@gmail.com" },
+]
+description = "A Python module to generate quantitative finance reports."
+readme = {file = "README.md", content-type = "text/markdown"}
+license = { file="LICENSE" }
+requires-python = ">=3.8"
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Operating System :: OS Independent",
+    "Topic :: Office/Business :: Financial :: Investment",
+]
+# --- Your module's dependencies go here ---
+dependencies = [
+    "pandas",
+    "numpy",
+    "yfinance",
+    "matplotlib",
+    "plotly",
+    "scipy",
+    "warnings",
+    "datetime",
+    "seaborn"
+]
+
+[project.urls]
+Homepage = "https://github.com/manan-tech/quant_reporter"
+Issues = "https://github.com/manan-tech/quant_reporter/issues"
