@@ -1,7 +1,2 @@
-dist/quant_reporter-1.0.3-py3-none-any.whl
-dist/quant_reporter-1.0.3.tar.gz
-src/quant_reporter.egg-info/dependency_links.txt
-src/quant_reporter.egg-info/PKG-INFO
-src/quant_reporter.egg-info/requires.txt
-src/quant_reporter.egg-info/SOURCES.txt
-src/quant_reporter.egg-info/top_level.txt
+dist/*
+src/quant_reporter.egg-info/*

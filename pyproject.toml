@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "quant_reporter"
-version = "1.0.2"
+version = "1.0.4"
 authors = [
   { name="Manan Bansal", email="mananpbansal@gmail.com" },
 ]
@@ -32,8 +32,6 @@ dependencies = [
     "matplotlib",
     "plotly",
     "scipy",
-    "warnings",
-    "datetime",
     "seaborn"
 ]
 
