@@ -38,7 +38,7 @@ pip install quant-reporter
 ```
 
 ### 2. For Development (Local Install)
-```
+```bash
 git clone https://github.com/manan-tech/quant_reporter.git
 cd quant_reporter
 pip install -e .[test]
@@ -53,7 +53,7 @@ This package provides two main report generators: a simple one and an advanced o
 ### 1. create_full_report
 
 Generates a simple performance report for a single asset or your user-defined portfolio.
-```
+```python
 import quant_reporter as qr
 import os
 from datetime import datetime, timedelta
@@ -79,7 +79,7 @@ This is the most powerful, professional-grade report. It performs a full walk-fo
 	2.	Training the optimizers on your train_start to train_end data.
 	3.	Testing those optimized portfolios on the out-of-sample data (train_end to today).
 
-```
+```python
 import quant_reporter as qr
 import os
 from datetime import datetime, timedelta
@@ -105,7 +105,7 @@ You can import and use all the core functions individually to build custom analy
 
 Example: Get data and find a Min Vol portfolio
 
-```
+```python
 import quant_reporter as qr
 import pandas as pd
 
@@ -147,20 +147,23 @@ Full Example: All Reports with Sector Constraints
 
 Here is a complete, copy-pasteable example using the complex US portfolio from our discussion. It runs both main reports and includes display names and sector constraints.
 
-```
+```python
 import quant_reporter as qr
 import os
 import traceback
 from datetime import datetime, timedelta
+import pandas as pd
+import numpy as np
+import warnings
+warnings.filterwarnings('ignore')
 
-# --- 1. Define Your Portfolio ---
+# --- 1. Define Your New Portfolio ---
 my_portfolio = {
     # --- Technology ---
     'AAPL': 0.05,   # Apple
     'MSFT': 0.07,   # Microsoft
     'NVDA': 0.02,   # Nvidia
     'TSLA': 0.03,   # Tesla
-    'PLTR': 0.02,   # Palantir
 
     # --- Pharma / Healthcare ---
     'JNJ': 0.04,    # Johnson & Johnson
@@ -171,8 +174,8 @@ my_portfolio = {
     'VMC': 0.02,    # Vulcan Materials
 
     # --- Defense / Aerospace ---
-    'LMT': 0.04,    # Lockheed Martin
-    'RTX': 0.03,    # Raytheon Technologies
+    'LMT': 0.05,    # Lockheed Martin
+    'RTX': 0.04,    # Raytheon Technologies
 
     # --- Banking / Financials ---
     'JPM': 0.05,    # JPMorgan Chase
@@ -206,8 +209,8 @@ my_portfolio = {
 display_names = {
     'AAPL': 'Apple', 'MSFT': 'Microsoft', 'NVDA': 'Nvidia', 'TSLA': 'Tesla',
     'JNJ': 'Johnson & Johnson', 'PFE': 'Pfizer', 'CAT': 'Caterpillar', 
-    'VMC': 'Vulcan Materials', 'LMT': 'Lockheed Martin', 'RTX': 'Raytheon',
-    'PLTR': 'Palantir', 'JPM': 'JPMorgan Chase', 'HDB': 'HDFC Bank (ADR)',
+    'VMC': 'Vulcan Materials', 'LMT': 'Lockheed Martin', 'RTX': 'Raytheon', 'PLTR': 'Palantir',
+    'JPM': 'JPMorgan Chase', 'HDB': 'HDFC Bank (ADR)',
     'XOM': 'Exxon Mobil', 'NEE': 'NextEra Energy', 'FDX': 'FedEx', 
     'UNP': 'Union Pacific', 'WMT': 'Walmart', 'PG': 'Procter & Gamble',
     'GLD': 'SPDR Gold ETF', 'SLV': 'iShares Silver ETF', 'DIA': 'Dow Jones ETF',
@@ -215,11 +218,11 @@ display_names = {
     'SPY': 'S&P 500 ETF' # Benchmark
 }
 
-# --- 3. Define Sector Map & Constraints (using original tickers) ---
+# --- 3. Define Sector Map & Caps (using original tickers) ---
 sector_map = {
-    'AAPL': 'Tech', 'MSFT': 'Tech', 'NVDA': 'Tech', 'TSLA': 'Tech', 'PLTR': 'Tech',
+    'AAPL': 'Tech', 'MSFT': 'Tech', 'NVDA': 'Tech', 'TSLA': 'Tech',
     'JNJ': 'Healthcare', 'PFE': 'Healthcare',
-    'CAT': 'Industrials', 'VMC': 'Industrials', 'LMT': 'Industrials', 'RTX': 'Industrials',
+    'CAT': 'Industrials', 'VMC': 'Industrials', 'LMT': 'Defence', 'RTX': 'Defence',
     'FDX': 'Industrials', 'UNP': 'Industrials',
     'JPM': 'Financials', 'HDB': 'Financials',
     'XOM': 'Energy', 'NEE': 'Utilities',
@@ -229,62 +232,151 @@ sector_map = {
     'BIL': 'Cash'
 }
 
-# Define max caps
 sector_caps = {
     'Tech': 0.40,         # Max 40% in Technology
     'Industrials': 0.30,
+    'Defence': 0.30,
+    'Healthcare': 0.20,
+    'Financials': 0.20,
+    'Energy': 0.15,
+    'Utilities': 0.15,
+    'Consumer': 0.20,
     'Commodities': 0.10,
-    'Financials': 0.20
-    # ... etc
+    'Broad Market': 0.10,
+    'Cash': 0.10
 }
 
-# Define min caps
 sector_mins = {
-    'Commodities': 0.01,  # At least 1% in Commodities
-    'Cash': 0.01,         # At least 1% in Cash
-    'Tech': 0.05          # At least 5% in Technology
+    'Tech': 0.05,         # At least 5% in Technology
+    'Healthcare': 0.01,   # At least 1%
+    'Industrials': 0.01,
+    'Defence': 0.01,
+    'Defense': 0.01,
+    'Financials': 0.01,
+    'Energy': 0.01,
+    'Utilities': 0.01,
+    'Logistics': 0.01,
+    'Consumer': 0.01,
+    'Commodities': 0.02,  # At least 2% in Commodities
+    'Broad Market': 0.01,
+    'Cash': 0.05          # At least 5% in Cash
 }
 
 # --- 4. Define Benchmark & Paths ---
 benchmark_ticker = 'SPY'
 desktop = os.path.join(os.path.expanduser('~'), 'Desktop')
-today = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
-risk_free_rate = 0.065
 
-# --- 5. Run All Reports ---
-try:
-    # --- Report 1: Simple Report (Full Period) ---
-    print("\n--- 1. RUNNING create_full_report ---")
-    qr.create_full_report(
-        assets=my_portfolio, 
-        benchmark_ticker=benchmark_ticker,
-        start_date='2010-01-01',
-        end_date=today,
-        filename=os.path.join(desktop, 'Portfolio_Report.html'),
-        display_names=display_names,
-        risk_free_rate=risk_free_rate
-    )
-    
-    # --- Report 2: Combined Validation Report (Train/Test) ---
-    print("\n--- 2. RUNNING create_combined_report ---")
-    qr.create_combined_report(
-        portfolio_dict=my_portfolio,
-        benchmark_ticker=benchmark_ticker,
-        train_start='2010-01-01',
-        train_end='2019-12-31',
-        risk_free_rate=risk_free_rate,
-        filename=os.path.join(desktop, 'Combined_Report.html'),
-        display_names=display_names,
-        sector_map=sector_map,
-        sector_caps=sector_caps,
-        sector_mins=sector_mins
-    )
-    
-    print(f"\nAll reports generated successfully on your Desktop.")
 
-except Exception as e:
-    print(f"An error occurred: {e}")
-    traceback.print_exc()
+def run_full_reports():
+    """
+    Runs all three major report generators.
+    """
+    print("--- 1. RUNNING create_full_report ---")
+    report_path_full = os.path.join(desktop, 'Portfolio_Report.html')
+    
+    try:
+        qr.create_full_report(
+            assets=my_portfolio, 
+            benchmark_ticker=benchmark_ticker,
+            start_date='2010-01-01',
+            end_date=(datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d'),
+            filename=report_path_full,
+            display_names=display_names,
+            risk_free_rate=0.065
+        )
+        print(f"--- Full Report Generated: {report_path_full} ---")
+    except Exception as e:
+        print(f"Error in create_full_report: {e}")
+        traceback.print_exc()
+
+    print("\n--- 2. RUNNING create_optimization_report ---")
+    opt_report_path = os.path.join(desktop, 'Portfolio_Optimization_Report.html')
+    
+    try:
+        qr.create_optimization_report(
+            portfolio_dict=my_portfolio,
+            benchmark_ticker=benchmark_ticker,
+            start_date='2010-01-01',
+            end_date='2019-12-31',
+            risk_free_rate=0.065,
+            filename=opt_report_path,
+            display_names=display_names,
+            sector_map=sector_map,
+            sector_caps=sector_caps,
+        )
+        print(f"--- Optimization Report Generated: {opt_report_path} ---")
+    except Exception as e:
+        print(f"Error in create_optimization_report: {e}")
+        traceback.print_exc()
+
+    print("\n--- 3. RUNNING create_combined_report ---")
+    comb_report_path = os.path.join(desktop, 'Combined_Report.html')
+    
+    try:
+        qr.create_combined_report(
+            portfolio_dict=my_portfolio,
+            benchmark_ticker=benchmark_ticker,
+            train_start='2010-01-01',
+            train_end='2023-12-31',
+            risk_free_rate=0.065,
+            filename=comb_report_path,
+            display_names=display_names,
+            sector_map=sector_map,
+            sector_caps=sector_caps,
+            sector_mins=sector_mins
+        )
+        print(f"--- Combined Report Generated: {comb_report_path} ---")
+    except Exception as e:
+        print(f"Error in create_combined_report: {e}")
+        traceback.print_exc()
+
+def test_individual_functions():
+    """
+    Demonstrates using the package as a library.
+    """
+    print("\n--- 4. TESTING INDIVIDUAL LIBRARY FUNCTIONS ---")
+    
+    try:
+        tickers = list(my_portfolio.keys())
+        friendly_tickers = [display_names.get(t, t) for t in tickers]
+        
+        # --- Test get_data ---
+        print("\nTesting get_data...")
+        data = qr.get_data(tickers, '2022-01-01', '2022-12-31')
+        print(data.tail(3))
+        
+        # --- Test calculate_metrics ---
+        print("\nTesting calculate_metrics...")
+        data_with_bench = qr.get_data(tickers + [benchmark_ticker], '2022-01-01', '2022-12-31')
+        data_with_bench.rename(columns=display_names, inplace=True)
+        
+        metrics, plot_data = qr.calculate_metrics(
+            data_with_bench, 
+            asset_col='Apple',
+            benchmark_col='S&P 500 ETF',
+            risk_free_rate=0.065
+        )
+        print(f"CAGR (Apple): {metrics['CAGR (Asset)']}")
+        print(f"Beta (Apple): {metrics['Beta (vs Benchmark)']}")
+        
+        # --- Test individual plotting function ---
+        print("\nTesting individual plot function (plot_correlation_heatmap)...")
+        # Get inputs using *friendly_tickers*
+        mean_returns, cov_matrix, log_returns = qr.get_optimization_inputs(data_with_bench[friendly_tickers])
+        fig = qr.plot_correlation_heatmap(log_returns)
+
+        print("Plotly figure object created successfully.")
+
+        print("\n--- Individual tests complete ---")
+        
+    except Exception as e:
+        print(f"Error during individual tests: {e}")
+        traceback.print_exc()
+
+# --- Run the tests ---
+if __name__ == "__main__":
+    run_full_reports()
+    test_individual_functions()
 ```
 
 ## API & Function Reference
