@@ -22,11 +22,21 @@ def plot_efficient_frontier(mean_returns, cov_matrix, optimal_portfolios, fronti
     vol_arr = np.zeros(num_ports)
     sharpe_arr = np.zeros(num_ports)
 
-    for i in range(num_ports):
-        weights = np.random.random(len(mean_returns))
-        weights /= np.sum(weights)
-        all_weights[i,:] = weights
-        ret_arr[i], vol_arr[i], sharpe_arr[i] = get_portfolio_stats(weights, mean_returns, cov_matrix, risk_free_rate)
+    # Vectorized generation of random portfolios
+    weights = np.random.random((num_ports, len(mean_returns)))
+    weights /= weights.sum(axis=1)[:, np.newaxis]
+    
+    # Vectorized return and volatility calculation
+    ret_arr = np.dot(weights, mean_returns)
+    
+    # Volatility is a bit trickier to vectorize fully without a loop for the quadratic form, 
+    # but we can use einsum for speed: diag(w @ Sigma @ w.T)
+    # However, a simple way that is still fast is:
+    # vol = sqrt( sum( (w @ Sigma) * w, axis=1 ) )
+    vol_arr = np.sqrt(np.sum(np.dot(weights, cov_matrix) * weights, axis=1))
+    
+    sharpe_arr = (ret_arr - risk_free_rate) / vol_arr
+    sharpe_arr[vol_arr <= 0.00001] = 0 # Handle division by zero case
 
     fig = go.Figure()
     

@@ -180,6 +180,37 @@ def run_full_reports():
         print(f"Error in create_combined_report: {e}")
         traceback.print_exc()
 
+    print("\n--- 4. RUNNING create_monte_carlo_report ---")
+    mc_report_path = os.path.join(desktop, 'Monte_Carlo_Report.html')
+    
+    try:
+        # 1. Fetch data for simulation inputs
+        # We use a recent history (e.g. last 3 years) to estimate stats
+        sim_start = '2020-01-01'
+        sim_end = '2023-12-31'
+        tickers = list(my_portfolio.keys())
+        data_mc = qr.get_data(tickers, sim_start, sim_end)
+        
+        # 2. Get Mean Returns & Covariance Matrix
+        mean_returns, cov_matrix, _ = qr.get_optimization_inputs(data_mc)
+        
+        # 3. Align weights with the sorted columns from yfinance
+        sorted_tickers = sorted(tickers)
+        weights_list = [my_portfolio[t] for t in sorted_tickers]
+        
+        qr.create_monte_carlo_report(
+            weights=weights_list,
+            mean_returns=mean_returns,
+            cov_matrix=cov_matrix,
+            num_simulations=1000,
+            time_horizon=252, # 1 Year
+            filename=mc_report_path
+        )
+        print(f"--- Monte Carlo Report Generated: {mc_report_path} ---")
+    except Exception as e:
+        print(f"Error in create_monte_carlo_report: {e}")
+        traceback.print_exc()
+
 def test_individual_functions():
     """
     Demonstrates using the package as a library.

@@ -37,6 +37,14 @@ from .opt_plotting import (
     plot_sector_allocation_pies,  
     plot_sector_risk_contribution 
 )
+from .monte_carlo import (
+    simulate_portfolio_paths,
+    calculate_simulation_metrics,
+    calculate_success_probabilities,
+    plot_simulation_paths,
+    plot_simulation_distribution,
+    plot_probability_curve
+)
 # --- End Imports ---
 
 
@@ -163,6 +171,19 @@ def create_combined_report(portfolio_dict, benchmark_ticker,
                     {"title": "In-Sample vs. Out-of-Sample Performance", "type": "table_html", "data": val_results["table_html"]},
                     {"title": "Out-of-Sample Cumulative Returns", "type": "plot", "data": val_results['validation_plots']['cumulative_plot']},
                     {"title": "Out-of-Sample Drawdown", "type": "plot", "data": val_results['validation_plots']['drawdown_plot']}
+                ]
+            },
+            {
+                "title": "4. Monte Carlo Simulation (User Portfolio)",
+                "description": f"Projection of future portfolio value using 1000 simulations over the Test Period ({val_results['test_days']} trading days).",
+                "sidebar": [
+                    {"title": "Simulation Risk Metrics", "type": "metrics", "data": val_results['mc_metrics']},
+                    {"title": "Success Probabilities", "type": "metrics", "data": val_results['mc_probs']}
+                ],
+                "main_content": [
+                    {"title": "Projected Future Paths", "type": "plot", "data": val_results['mc_plots']['paths']},
+                    {"title": "Distribution of Final Returns", "type": "plot", "data": val_results['mc_plots']['dist']},
+                    {"title": "Probability of Exceeding Return", "type": "plot", "data": val_results['mc_plots']['prob_curve']}
                 ]
             }
         ]
@@ -300,9 +321,39 @@ def _run_validation_logic(data_train, data_test, tickers, friendly_tickers, frie
     asset_corr_df = aligned_log_returns.corrwith(aligned_benchmark).to_frame(name='Correlation')
     asset_corr_html = asset_corr_df.map(lambda x: f"{x:.2f}").to_html(classes='metrics-table')
 
+    # --- 7. Run Monte Carlo Simulation (on User Portfolio) ---
+    print("   Running Monte Carlo simulation...")
+    # We use the full period mean returns and cov matrix for the simulation to be most representative
+    # Or we can use the train period. Let's use the train period to be consistent with the "validation" theme,
+    # effectively asking "Based on what we knew then, what did we project?"
+    # We set the time horizon to match the actual Test period length for a fair comparison.
+    
+    test_days = len(data_test)
+    print(f"   Simulation Horizon: {test_days} trading days (matching Test period)")
+    
+    user_weights_arr = np.array(list(user_friendly_weights.values()))
+    mc_sim_df = simulate_portfolio_paths(user_weights_arr, train_mean_returns, train_cov_matrix, num_simulations=1000, time_horizon=test_days)
+    
+    # Get Actuals
+    actual_path = out_sample_eval_data["User Portfolio"]
+    actual_return = (actual_path.iloc[-1] / actual_path.iloc[0]) - 1
+    
+    mc_metrics, mc_total_returns = calculate_simulation_metrics(mc_sim_df, actual_return=actual_return)
+    mc_probs = calculate_success_probabilities(mc_total_returns)
+    
+    mc_plots = {
+        "paths": plot_simulation_paths(mc_sim_df, actual_path=actual_path),
+        "dist": plot_simulation_distribution(mc_total_returns, actual_return=actual_return),
+        "prob_curve": plot_probability_curve(mc_total_returns, actual_return=actual_return)
+    }
+
     return {
         "table_html": validation_table_html,
         "validation_plots": validation_plots,
         "optimization_plots": optimization_plots,
-        "asset_corr_html": asset_corr_html
+        "asset_corr_html": asset_corr_html,
+        "mc_metrics": mc_metrics,
+        "mc_probs": mc_probs,
+        "mc_plots": mc_plots,
+        "test_days": test_days
     }

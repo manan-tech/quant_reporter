@@ -39,6 +39,17 @@ from .opt_plotting import (
     plot_portfolio_vs_constituents
 )
 
+# --- Monte Carlo Simulations ---
+from .monte_carlo import (
+    simulate_portfolio_paths,
+    calculate_simulation_metrics,
+    calculate_success_probabilities,
+    plot_simulation_paths,
+    plot_simulation_distribution,
+    plot_probability_curve,
+    create_monte_carlo_report
+)
+
 # --- Full Report Generators ---
 from .optimization import create_optimization_report
 from .validation import create_validation_report

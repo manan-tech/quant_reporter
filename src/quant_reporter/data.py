@@ -8,10 +8,14 @@ def get_data(tickers, start_date, end_date):
     """
     print(f"Fetching data for {', '.join(tickers)}...")
     try:
-        all_data = yf.download(tickers, start=start_date, end=end_date)
+        # threads=False to avoid "OperationalError: unable to open database file" with yfinance cache
+        all_data = yf.download(tickers, start=start_date, end=end_date, threads=False)
         
         if all_data.empty:
             raise ValueError("No data downloaded. Check tickers and date range.")
+
+        if 'Close' not in all_data:
+             raise ValueError("Downloaded data does not contain 'Close' prices.")
 
         data = all_data['Close']
         

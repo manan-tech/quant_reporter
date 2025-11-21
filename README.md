@@ -23,11 +23,15 @@ This package is designed to be used in two ways:
     * Asset Allocation Pie Charts
     * Sector Allocation Pie Charts
     * Asset-level Risk Contribution (Stacked Bar)
-    * **Sector-level Risk Contribution** (Stacked Bar)
+    * Sector-level Risk Contribution (Stacked Bar)
     * Rolling Sharpe Ratio
     * Cumulative Returns & Drawdown Plots
     * Correlation Heatmaps
-* **Flexible & Extensible:** All core math and plotting functions can be imported and used individually.
+    * Monte Carlo Simulations:
+        * Future Projections: Simulate 1000+ potential future paths for your portfolio using Geometric Brownian Motion.
+        * Actual vs. Simulated: Overlay your portfolio's *actual* realized performance on top of the simulations for a powerful "reality check."
+        * Probability Analysis: Calculate the probability of your portfolio exceeding specific return thresholds (e.g., "65% chance of >10% return").
+* Flexible & Extensible: All core math and plotting functions can be imported and used individually.
 
 ## Installation
 
@@ -41,7 +45,8 @@ pip install quant-reporter
 ```bash
 git clone https://github.com/manan-tech/quant_reporter.git
 cd quant_reporter
-pip install -e .[test]
+# Important: Use -e for editable mode so changes are reflected immediately
+pip install -e .
 ```
 
 ⸻
@@ -94,6 +99,25 @@ qr.create_combined_report(
     train_end='2021-12-31',
     filename=os.path.join(desktop, 'My_Combined_Report.html'),
     risk_free_rate=0.065
+)
+```
+
+### 3. create_monte_carlo_report (New!)
+
+Generates a dedicated Monte Carlo simulation report.
+
+```python
+import quant_reporter as qr
+
+# ... define assets ...
+
+qr.create_monte_carlo_report(
+    weights={'AAPL': 0.6, 'MSFT': 0.4},
+    mean_returns=mean_returns, # from get_optimization_inputs
+    cov_matrix=cov_matrix,     # from get_optimization_inputs
+    num_simulations=1000,
+    time_horizon=252,
+    filename='Monte_Carlo_Report.html'
 )
 ```
 
@@ -330,6 +354,37 @@ def run_full_reports():
         print(f"Error in create_combined_report: {e}")
         traceback.print_exc()
 
+    print("\n--- 4. RUNNING create_monte_carlo_report ---")
+    mc_report_path = os.path.join(desktop, 'Monte_Carlo_Report.html')
+    
+    try:
+        # 1. Fetch data for simulation inputs
+        # We use a recent history (e.g. last 3 years) to estimate stats
+        sim_start = '2020-01-01'
+        sim_end = '2023-12-31'
+        tickers = list(my_portfolio.keys())
+        data_mc = qr.get_data(tickers, sim_start, sim_end)
+        
+        # 2. Get Mean Returns & Covariance Matrix
+        mean_returns, cov_matrix, _ = qr.get_optimization_inputs(data_mc)
+        
+        # 3. Align weights with the sorted columns from yfinance
+        sorted_tickers = sorted(tickers)
+        weights_list = [my_portfolio[t] for t in sorted_tickers]
+        
+        qr.create_monte_carlo_report(
+            weights=weights_list,
+            mean_returns=mean_returns,
+            cov_matrix=cov_matrix,
+            num_simulations=1000,
+            time_horizon=252, # 1 Year
+            filename=mc_report_path
+        )
+        print(f"--- Monte Carlo Report Generated: {mc_report_path} ---")
+    except Exception as e:
+        print(f"Error in create_monte_carlo_report: {e}")
+        traceback.print_exc()
+
 def test_individual_functions():
     """
     Demonstrates using the package as a library.
@@ -408,9 +463,10 @@ if __name__ == "__main__":
 	•	(…and all other plot_ functions in plotting.py and opt_plotting.py)
 
 ### Future Development
-	•	Monte Carlo Simulation: Add a create_monte_carlo_report to simulate future returns.
-	•	Brinson Attribution: Add performance attribution (Allocation vs. Selection).
-	•	Rolling Validation: Implement a true “walk-forward” optimization with periodic rebalancing.
+*   **Advanced Attribution:** Implement Brinson Performance Attribution (Allocation vs. Selection effects).
+*   **Rolling Validation:** True "walk-forward" optimization with periodic rebalancing (e.g., re-optimize every quarter).
+*   **AI-Driven Insights:** Integrate LLMs to generate textual commentary and risk warnings based on the report data.
+*   **More Simulation Models:** Add support for GARCH or Bootstrapping models in Monte Carlo.
 
 ## License
 

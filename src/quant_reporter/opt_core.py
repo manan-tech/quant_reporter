@@ -169,8 +169,8 @@ def get_risk_free_rate():
         print(f"Using live risk-free rate: {latest_rate:.2%}")
         return latest_rate
     except Exception as e:
-        print(f"Warning: Could not fetch live risk-free rate. Defaulting to 0.02. Error: {e}")
-        return 0.02
+        print(f"Warning: Could not fetch live risk-free rate. Defaulting to 0.06. Error: {e}")
+        return 0.06
 
 def calculate_rolling_returns(cumulative_df):
     """

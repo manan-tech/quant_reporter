@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "quant_reporter"
-version = "1.0.4"
+version = "1.0.6"
 authors = [
   { name="Manan Bansal", email="mananpbansal@gmail.com" },
 ]
@@ -29,12 +29,13 @@ dependencies = [
     "pandas",
     "numpy",
     "yfinance",
-    "matplotlib",
     "plotly",
-    "scipy",
-    "seaborn"
+    "scipy"
 ]
 
 [project.urls]
 Homepage = "https://github.com/manan-tech/quant_reporter"
 Issues = "https://github.com/manan-tech/quant_reporter/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
