@@ -1,6 +1,9 @@
+import logging
 import pandas as pd
 import numpy as np
 import traceback
+
+logger = logging.getLogger(__name__)
 from .data import get_data
 from .metrics import calculate_metrics
 from .html_builder import generate_html_report
@@ -37,11 +40,12 @@ def create_optimization_report(portfolio_dict, benchmark_ticker, start_date, end
                                display_names=None,
                                sector_map=None,
                                sector_caps=None,
-                               sector_mins=None):
+                               sector_mins=None,
+                               denoise_cov=False, n_components=3):
     """
-    Runs the full portfolio optimization and generates an HTML report.
+    Generates a standalone Optimization and Risk Analysis Report.
     """
-    print("--- Starting Portfolio Optimization ---")
+    logger.info("Starting Portfolio Optimization")
     
     try:
         if isinstance(risk_free_rate, str) and risk_free_rate.lower() == 'auto':
@@ -52,7 +56,7 @@ def create_optimization_report(portfolio_dict, benchmark_ticker, start_date, end
         
         tickers = list(portfolio_dict.keys()) # <-- Raw tickers
         num_assets = len(tickers)
-        print(f"--- Using Risk-Free Rate: {rfr:.2%} ---")
+        logger.info("Using Risk-Free Rate: %.2f%%", rfr * 100)
         
         all_tickers = tickers + [benchmark_ticker]
         price_data = get_data(all_tickers, start_date, end_date)
@@ -63,7 +67,7 @@ def create_optimization_report(portfolio_dict, benchmark_ticker, start_date, end
         friendly_sector_map = None
         
         if display_names:
-            print("Applying display names...")
+            logger.info("Applying display names...")
             price_data.rename(columns=display_names, inplace=True)
             friendly_benchmark = display_names.get(benchmark_ticker, benchmark_ticker)
             friendly_tickers = [display_names.get(t, t) for t in tickers]
@@ -71,7 +75,9 @@ def create_optimization_report(portfolio_dict, benchmark_ticker, start_date, end
                 # Create the friendly_sector_map for plotting
                 friendly_sector_map = {display_names.get(t, t): s for t, s in sector_map.items()}
         
-        mean_returns, cov_matrix, log_returns = get_optimization_inputs(price_data[friendly_tickers])
+        mean_returns, cov_matrix, log_returns = get_optimization_inputs(
+            price_data[friendly_tickers], denoise_cov=denoise_cov, n_components=n_components
+        )
         
         # --- 4. Define Constraints ---
         bounds_uncon = tuple((0, 1) for _ in range(num_assets))
@@ -81,24 +87,24 @@ def create_optimization_report(portfolio_dict, benchmark_ticker, start_date, end
         cons_sector = build_constraints(num_assets, tickers, sector_map, sector_caps, sector_mins)
         
         # --- 5. Optimize ---
-        print("Optimizing for Minimum Volatility...")
+        logger.info("Optimizing for Minimum Volatility...")
         min_vol_weights_arr = find_optimal_portfolio(objective_min_variance, mean_returns, cov_matrix, bounds_uncon, cons_uncon, rfr)
         min_vol_weights_dict = {t: w for t, w in zip(friendly_tickers, min_vol_weights_arr)}
 
-        print("Optimizing for Maximum Sharpe Ratio...")
+        logger.info("Optimizing for Maximum Sharpe Ratio...")
         max_sharpe_weights_arr = find_optimal_portfolio(objective_neg_sharpe, mean_returns, cov_matrix, bounds_uncon, cons_uncon, rfr)
         max_sharpe_weights_dict = {t: w for t, w in zip(friendly_tickers, max_sharpe_weights_arr)}
 
-        print("Optimizing for Balanced Portfolio (Max Sharpe w/ 40% cap)...")
+        logger.info("Optimizing for Balanced Portfolio (Max Sharpe w/ 40%% cap)...")
         bal_weights_arr = find_optimal_portfolio(objective_neg_sharpe, mean_returns, cov_matrix, bounds_bal, cons_bal, rfr)
         bal_weights_dict = {t: w for t, w in zip(friendly_tickers, bal_weights_arr)}
         
-        print("Calculating Equal Weight Portfolio...")
+        logger.info("Calculating Equal Weight Portfolio...")
         equal_weights_arr = np.array([1./num_assets] * num_assets)
         equal_weights_dict = {t: w for t, w in zip(friendly_tickers, equal_weights_arr)}
 
         # --- 6. Evaluate Performance ---
-        print("Evaluating optimized portfolios...")
+        logger.info("Evaluating optimized portfolios...")
         
         eval_data = (price_data[[friendly_benchmark]] / price_data[[friendly_benchmark]].iloc[0]).copy()
         
@@ -121,7 +127,7 @@ def create_optimization_report(portfolio_dict, benchmark_ticker, start_date, end
         }
         
         if sector_map and (sector_caps or sector_mins):
-            print("Optimizing for Sector Balanced Portfolio...")
+            logger.info("Optimizing for Sector Balanced Portfolio...")
             sec_bal_weights_arr = find_optimal_portfolio(objective_neg_sharpe, mean_returns, cov_matrix, bounds_uncon, cons_sector, rfr)
             sec_bal_weights_dict = {t: w for t, w in zip(friendly_tickers, sec_bal_weights_arr)}
             eval_data['Sector Balanced'] = get_portfolio_price(price_data[friendly_tickers], sec_bal_weights_dict)
@@ -179,8 +185,8 @@ def create_optimization_report(portfolio_dict, benchmark_ticker, start_date, end
         # 10. Generate Report
         generate_html_report(sections, title="Portfolio Optimization Report", filename=filename)
         
-        print(f"--- Optimization Report Generated: {filename} ---")
+        logger.info("Optimization Report Generated: %s", filename)
         
     except Exception as e:
-        print(f"An error occurred during optimization: {e}")
+        logger.error("An error occurred during optimization: %s", e)
         traceback.print_exc()

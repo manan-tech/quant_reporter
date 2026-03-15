@@ -1,4 +1,7 @@
+import logging
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 from .data import get_data
 from .metrics import calculate_metrics
 from .plotting import (
@@ -20,7 +23,7 @@ def create_full_report(assets, benchmark_ticker, start_date, end_date,
     """
     Runs the full data-to-HTML report generation pipeline.
     """
-    print(f"--- Starting Full Portfolio Report ---")
+    logger.info("Starting Full Portfolio Report")
     
     asset_col_name = ""
     is_portfolio = False
@@ -58,14 +61,14 @@ def create_full_report(assets, benchmark_ticker, start_date, end_date,
     if is_portfolio:
         user_friendly_weights = {display_names.get(k, k): v for k, v in portfolio_dict_raw.items()} if display_names else portfolio_dict_raw
         if not abs(sum(user_friendly_weights.values()) - 1.0) > 1e-5: # Check if sum is not 1
-             print(f"Warning: Portfolio weights sum to {sum(user_friendly_weights.values())}, not 1.0. Proceeding anyway.")
+             logger.warning("Portfolio weights sum to %.4f, not 1.0. Proceeding anyway.", sum(user_friendly_weights.values()))
         
         price_data[friendly_asset_col] = get_portfolio_price(price_data[friendly_tickers], user_friendly_weights)
 
     try:
         metrics, plot_data = calculate_metrics(price_data, friendly_asset_col, friendly_benchmark, risk_free_rate)
     except Exception as e:
-        print(f"Error calculating metrics for {friendly_asset_col}: {e}")
+        logger.error("Error calculating metrics for %s: %s", friendly_asset_col, e)
         return
 
     # --- Build Report Sections ---
@@ -104,4 +107,4 @@ def create_full_report(assets, benchmark_ticker, start_date, end_date,
     }]
     
     generate_html_report(sections, title=f"Portfolio Report: {friendly_asset_col}", filename=filename)
-    print(f"--- Report for {friendly_asset_col} complete. ---")
+    logger.info("Report for %s complete.", friendly_asset_col)

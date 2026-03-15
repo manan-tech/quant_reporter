@@ -1,3 +1,18 @@
+import logging
+
+# Library logging best practice: add NullHandler so users can control output.
+logging.getLogger('quant_reporter').addHandler(logging.NullHandler())
+
+
+def enable_logging(level=logging.INFO):
+    """Enable console logging for quant_reporter. Call with logging.DEBUG for verbose output."""
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter('%(levelname)s | %(name)s | %(message)s'))
+    root_logger = logging.getLogger('quant_reporter')
+    root_logger.addHandler(handler)
+    root_logger.setLevel(level)
+
+
 # --- Core Utilities (for advanced use) ---
 from .data import get_data
 from .metrics import calculate_metrics
@@ -50,9 +65,20 @@ from .monte_carlo import (
     create_monte_carlo_report
 )
 
+# --- Black-Litterman ---
+from .black_litterman import (
+    get_market_caps,
+    calculate_market_weights,
+    calculate_implied_equilibrium_returns,
+    calculate_black_litterman_posterior
+)
+
 # --- Full Report Generators ---
 from .optimization import create_optimization_report
 from .validation import create_validation_report
 from .combined_report import create_combined_report
+
+# --- Rebalancing ---
+from .rebalancing import simulate_rebalanced_portfolio
 
 __version__ = "1.0.0" 

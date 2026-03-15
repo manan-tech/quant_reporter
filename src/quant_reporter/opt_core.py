@@ -1,7 +1,10 @@
+import logging
 import pandas as pd
 import numpy as np
 import scipy.optimize as sco
 import yfinance as yf
+
+logger = logging.getLogger(__name__)
 from .data import get_data
 from .metrics import calculate_metrics
 
@@ -28,13 +31,47 @@ def get_portfolio_price(ticker_prices, weights_dict):
     weighted_prices = normalized_prices * weights
     return weighted_prices.sum(axis=1)
 
-def get_optimization_inputs(asset_price_data):
+def denoise_covariance_matrix(cov_matrix, n_components=3):
+    """
+    Denoises a covariance matrix using Spectral Thresholding (Eigenvalue Clipping)
+    and rescales to preserve the original matrix trace.
+    Returns the denoised, positive-semidefinite DataFrame.
+    """
+    import numpy as np
+    import pandas as pd
+    
+    # 1. Calculate eigenvalues and eigenvectors
+    evals, evecs = np.linalg.eigh(cov_matrix)
+    
+    # 2. Sort evals descending, but np.linalg.eigh returns ascending, so we reverse
+    evals = evals[::-1]
+    evecs = evecs[:, ::-1]
+    
+    # 3. Clip the noise tail
+    if n_components < len(evals):
+        # Calculate the average of the discarded "noise" eigenvalues
+        noise_variance = np.mean(evals[n_components:])
+        
+        # Replace the tail with the noise average
+        evals[n_components:] = noise_variance
+    
+    # 4. Reconstruct the matrix: C' = V * L * V^T
+    denoised_cov_matrix = evecs @ np.diag(evals) @ evecs.T
+    
+    # 5. Restore the DataFrame structure
+    return pd.DataFrame(denoised_cov_matrix, index=cov_matrix.index, columns=cov_matrix.columns)
+
+def get_optimization_inputs(asset_price_data, denoise_cov=False, n_components=3):
     """
     Calculates mean returns, covariance matrix, and log returns from asset price data.
     """
     log_returns = np.log(asset_price_data / asset_price_data.shift(1)).dropna()
     mean_returns = log_returns.mean() * 252
     cov_matrix = log_returns.cov() * 252
+    
+    if denoise_cov and n_components is not None:
+        logger.info("Denoising covariance matrix (Eigenvalue Clipping with %d components)", n_components)
+        cov_matrix = denoise_covariance_matrix(cov_matrix, n_components)
     
     return mean_returns, cov_matrix, log_returns
 
@@ -69,14 +106,14 @@ def find_optimal_portfolio(objective_func, mean_returns, cov_matrix, bounds, con
     )
     
     if not result.success:
-        print(f"Optimization warning: {result.message}")
+        logger.warning("Optimization warning: %s", result.message)
     return result.x
 
 def calculate_efficient_frontier_curve(mean_returns, cov_matrix):
     """
     Calculates the smooth efficient frontier curve.
     """
-    print("Calculating Efficient Frontier curve...")
+    logger.info("Calculating Efficient Frontier curve...")
     num_assets = len(mean_returns)
     bounds = tuple((0, 1) for _ in range(num_assets))
     base_constraints = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
@@ -122,24 +159,24 @@ def build_constraints(num_assets, raw_tickers, sector_map=None, sector_caps=None
     constraints = [{'type': 'eq', 'fun': lambda x: np.sum(x) - 1}]
     
     if sector_map and sector_caps:
-        print("Adding sector cap constraints...")
+        logger.info("Adding sector cap constraints...")
         for sector, cap in sector_caps.items():
             sector_indices = [i for i, ticker in enumerate(raw_tickers) if sector_map.get(ticker) == sector]
             
             if sector_indices:
-                print(f"   ...adding cap for {sector} ({cap*100}%)")
+                logger.info("   ...adding cap for %s (%.1f%%)", sector, cap*100)
                 constraints.append({
                     'type': 'ineq',
                     'fun': lambda weights, indices=sector_indices, cap=cap: cap - np.sum(weights[indices])
                 })
     
     if sector_map and sector_mins:
-        print("Adding sector minimum constraints...")
+        logger.info("Adding sector minimum constraints...")
         for sector, min_val in sector_mins.items():
             sector_indices = [i for i, ticker in enumerate(raw_tickers) if sector_map.get(ticker) == sector]
             
             if sector_indices:
-                print(f"   ...adding min for {sector} ({min_val*100}%)")
+                logger.info("   ...adding min for %s (%.1f%%)", sector, min_val*100)
                 constraints.append({
                     'type': 'ineq',
                     # Constraint function: sum(weights_for_this_sector) - min_val >= 0
@@ -155,7 +192,7 @@ def get_risk_free_rate():
     Fetches the latest 13-week US T-bill rate (^IRX) as a decimal.
     """
     try:
-        print("Fetching live risk-free rate (^IRX)...")
+        logger.info("Fetching live risk-free rate (^IRX)...")
         tbill = yf.download("^IRX", period="5d") 
         
         if tbill is None or tbill.empty:
@@ -166,10 +203,10 @@ def get_risk_free_rate():
         if not 0 <= latest_rate <= 0.2:
              raise Exception(f"Fetched rate ({latest_rate}) is unrealistic.")
              
-        print(f"Using live risk-free rate: {latest_rate:.2%}")
+        logger.info("Using live risk-free rate: %.2f%%", latest_rate * 100)
         return latest_rate
     except Exception as e:
-        print(f"Warning: Could not fetch live risk-free rate. Defaulting to 0.06. Error: {e}")
+        logger.warning("Could not fetch live risk-free rate. Defaulting to 0.06. Error: %s", e)
         return 0.06
 
 def calculate_rolling_returns(cumulative_df):

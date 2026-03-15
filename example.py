@@ -1,3 +1,8 @@
+"""
+Main example: runs all 4 report types + individual function tests.
+All reports are saved to the ./reports/ directory in the project root.
+"""
+import logging
 import quant_reporter as qr
 import os
 import traceback
@@ -6,6 +11,15 @@ import pandas as pd
 import numpy as np
 import warnings
 warnings.filterwarnings('ignore')
+
+# Enable library logging
+qr.enable_logging(logging.INFO)
+logger = logging.getLogger(__name__)
+
+# ── Reports directory (same folder as this script) ─────────────────────────
+REPORTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'reports')
+os.makedirs(REPORTS_DIR, exist_ok=True)
+
 
 # --- 1. Define Your New Portfolio ---
 my_portfolio = {
@@ -59,7 +73,7 @@ my_portfolio = {
 display_names = {
     'AAPL': 'Apple', 'MSFT': 'Microsoft', 'NVDA': 'Nvidia', 'TSLA': 'Tesla',
     'JNJ': 'Johnson & Johnson', 'PFE': 'Pfizer', 'CAT': 'Caterpillar', 
-    'VMC': 'Vulcan Materials', 'LMT': 'Lockheed Martin', 'RTX': 'Raytheon', 'PLTR': 'Palantir',
+    'VMC': 'Vulcan Materials', 'LMT': 'Lockheed Martin', 'RTX': 'Raytheon',
     'JPM': 'JPMorgan Chase', 'HDB': 'HDFC Bank (ADR)',
     'XOM': 'Exxon Mobil', 'NEE': 'NextEra Energy', 'FDX': 'FedEx', 
     'UNP': 'Union Pacific', 'WMT': 'Walmart', 'PG': 'Procter & Gamble',
@@ -83,7 +97,7 @@ sector_map = {
 }
 
 sector_caps = {
-    'Tech': 0.40,         # Max 40% in Technology
+    'Tech': 0.40,
     'Industrials': 0.30,
     'Defence': 0.30,
     'Healthcare': 0.20,
@@ -97,51 +111,47 @@ sector_caps = {
 }
 
 sector_mins = {
-    'Tech': 0.05,         # At least 5% in Technology
-    'Healthcare': 0.01,   # At least 1%
+    'Tech': 0.05,
+    'Healthcare': 0.01,
     'Industrials': 0.01,
     'Defence': 0.01,
-    'Defense': 0.01,
     'Financials': 0.01,
     'Energy': 0.01,
     'Utilities': 0.01,
-    'Logistics': 0.01,
     'Consumer': 0.01,
-    'Commodities': 0.02,  # At least 2% in Commodities
+    'Commodities': 0.02,
     'Broad Market': 0.01,
-    'Cash': 0.05          # At least 5% in Cash
+    'Cash': 0.05
 }
 
-# --- 4. Define Benchmark & Paths ---
+# --- 4. Define Benchmark ---
 benchmark_ticker = 'SPY'
-desktop = os.path.join(os.path.expanduser('~'), 'Desktop')
 
 
 def run_full_reports():
-    """
-    Runs all three major report generators.
-    """
-    print("--- 1. RUNNING create_full_report ---")
-    report_path_full = os.path.join(desktop, 'Portfolio_Report.html')
-    
+    """Runs all four major report generators."""
+
+    # ── Report 1: Full Portfolio Report ─────────────────────────────────
+    logger.info("1. Running create_full_report")
+    report_path = os.path.join(REPORTS_DIR, 'Portfolio_Report.html')
     try:
         qr.create_full_report(
             assets=my_portfolio, 
             benchmark_ticker=benchmark_ticker,
             start_date='2010-01-01',
             end_date=(datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d'),
-            filename=report_path_full,
+            filename=report_path,
             display_names=display_names,
             risk_free_rate=0.065
         )
-        print(f"--- Full Report Generated: {report_path_full} ---")
+        logger.info("Full Report Generated: %s", report_path)
     except Exception as e:
-        print(f"Error in create_full_report: {e}")
+        logger.error("Error in create_full_report: %s", e)
         traceback.print_exc()
 
-    print("\n--- 2. RUNNING create_optimization_report ---")
-    opt_report_path = os.path.join(desktop, 'Portfolio_Optimization_Report.html')
-    
+    # ── Report 2: Optimization Report ──────────────────────────────────
+    logger.info("2. Running create_optimization_report")
+    opt_path = os.path.join(REPORTS_DIR, 'Optimization_Report.html')
     try:
         qr.create_optimization_report(
             portfolio_dict=my_portfolio,
@@ -149,52 +159,60 @@ def run_full_reports():
             start_date='2010-01-01',
             end_date='2019-12-31',
             risk_free_rate=0.065,
-            filename=opt_report_path,
+            filename=opt_path,
             display_names=display_names,
             sector_map=sector_map,
             sector_caps=sector_caps,
         )
-        print(f"--- Optimization Report Generated: {opt_report_path} ---")
+        logger.info("Optimization Report Generated: %s", opt_path)
     except Exception as e:
-        print(f"Error in create_optimization_report: {e}")
+        logger.error("Error in create_optimization_report: %s", e)
         traceback.print_exc()
 
-    print("\n--- 3. RUNNING create_combined_report ---")
-    comb_report_path = os.path.join(desktop, 'Combined_Report.html')
-    
+    # ── Report 3: Combined Report ──────────────────────────────────────
+    logger.info("3. Running create_combined_report")
+    comb_path = os.path.join(REPORTS_DIR, 'Combined_Report.html')
     try:
         qr.create_combined_report(
             portfolio_dict=my_portfolio,
             benchmark_ticker=benchmark_ticker,
             train_start='2010-01-01',
             train_end='2023-12-31',
-            risk_free_rate=0.065,
-            filename=comb_report_path,
+            risk_free_rate='auto',
+            filename=comb_path,
             display_names=display_names,
             sector_map=sector_map,
             sector_caps=sector_caps,
-            sector_mins=sector_mins
+            sector_mins=sector_mins,
+            bl_views={
+                'NVDA': 0.20,  'MSFT': 0.15,  'AAPL': 0.08,
+                'XOM': 0.12,   'JPM': 0.11,   'PFE': -0.05,
+            },
+            bl_view_confidences={
+                'NVDA': 0.9,  'MSFT': 0.8,  'AAPL': 0.6,
+                'XOM': 0.7,   'JPM': 0.6,   'PFE': 0.5,
+            },
+            bl_relative_views=[
+                ('NVDA', 'TSLA', 0.05),
+                ('XOM', 'NEE', 0.04),
+            ],
+            bl_relative_view_confidences=[0.7, 0.6],
+            rebalance_freq='Q',
+            desc=True
         )
-        print(f"--- Combined Report Generated: {comb_report_path} ---")
+        logger.info("Combined Report Generated: %s", comb_path)
     except Exception as e:
-        print(f"Error in create_combined_report: {e}")
+        logger.error("Error in create_combined_report: %s", e)
         traceback.print_exc()
 
-    print("\n--- 4. RUNNING create_monte_carlo_report ---")
-    mc_report_path = os.path.join(desktop, 'Monte_Carlo_Report.html')
-    
+    # ── Report 4: Monte Carlo Report ───────────────────────────────────
+    logger.info("4. Running create_monte_carlo_report")
+    mc_path = os.path.join(REPORTS_DIR, 'Monte_Carlo_Report.html')
     try:
-        # 1. Fetch data for simulation inputs
-        # We use a recent history (e.g. last 3 years) to estimate stats
-        sim_start = '2020-01-01'
-        sim_end = '2023-12-31'
         tickers = list(my_portfolio.keys())
-        data_mc = qr.get_data(tickers, sim_start, sim_end)
-        
-        # 2. Get Mean Returns & Covariance Matrix
+        data_mc = qr.get_data(tickers, '2020-01-01', '2023-12-31')
         mean_returns, cov_matrix, _ = qr.get_optimization_inputs(data_mc)
         
-        # 3. Align weights with the sorted columns from yfinance
         sorted_tickers = sorted(tickers)
         weights_list = [my_portfolio[t] for t in sorted_tickers]
         
@@ -203,58 +221,51 @@ def run_full_reports():
             mean_returns=mean_returns,
             cov_matrix=cov_matrix,
             num_simulations=1000,
-            time_horizon=252, # 1 Year
-            filename=mc_report_path
+            time_horizon=252,
+            filename=mc_path
         )
-        print(f"--- Monte Carlo Report Generated: {mc_report_path} ---")
+        logger.info("Monte Carlo Report Generated: %s", mc_path)
     except Exception as e:
-        print(f"Error in create_monte_carlo_report: {e}")
+        logger.error("Error in create_monte_carlo_report: %s", e)
         traceback.print_exc()
 
+
 def test_individual_functions():
-    """
-    Demonstrates using the package as a library.
-    """
-    print("\n--- 4. TESTING INDIVIDUAL LIBRARY FUNCTIONS ---")
+    """Demonstrates using the package as a library."""
+    logger.info("5. Testing individual library functions")
     
     try:
         tickers = list(my_portfolio.keys())
         friendly_tickers = [display_names.get(t, t) for t in tickers]
         
-        # --- Test get_data ---
-        print("\nTesting get_data...")
         data = qr.get_data(tickers, '2022-01-01', '2022-12-31')
-        print(data.tail(3))
+        logger.info("get_data returned %d rows x %d cols", len(data), len(data.columns))
         
-        # --- Test calculate_metrics ---
-        print("\nTesting calculate_metrics...")
         data_with_bench = qr.get_data(tickers + [benchmark_ticker], '2022-01-01', '2022-12-31')
         data_with_bench.rename(columns=display_names, inplace=True)
         
-        metrics, plot_data = qr.calculate_metrics(
-            data_with_bench, 
-            asset_col='Apple',
-            benchmark_col='S&P 500 ETF',
-            risk_free_rate=0.065
+        metrics, _ = qr.calculate_metrics(
+            data_with_bench, asset_col='Apple', benchmark_col='S&P 500 ETF', risk_free_rate=0.065
         )
-        print(f"CAGR (Apple): {metrics['CAGR (Asset)']}")
-        print(f"Beta (Apple): {metrics['Beta (vs Benchmark)']}")
+        logger.info("CAGR (Apple): %s", metrics['CAGR (Asset)'])
+        logger.info("Beta (Apple): %s", metrics['Beta (vs Benchmark)'])
         
-        # --- Test individual plotting function ---
-        print("\nTesting individual plot function (plot_correlation_heatmap)...")
-        # Get inputs using *friendly_tickers*
-        mean_returns, cov_matrix, log_returns = qr.get_optimization_inputs(data_with_bench[friendly_tickers])
-        fig = qr.plot_correlation_heatmap(log_returns)
-
-        print("Plotly figure object created successfully.")
-
-        print("\n--- Individual tests complete ---")
+        # Test Black-Litterman
+        bl_tickers = ['AAPL', 'MSFT', 'GOOG']
+        bl_data = qr.get_data(bl_tickers, '2023-01-01', '2023-12-31')
+        bl_means, bl_cov, _ = qr.get_optimization_inputs(bl_data)
+        bl_caps = qr.get_market_caps(bl_tickers)
+        
+        post_means, _ = qr.calculate_black_litterman_posterior(bl_means, bl_cov, bl_caps)
+        logger.info("BL Posterior Means: %s", post_means.to_dict())
+        
+        logger.info("Individual tests complete")
         
     except Exception as e:
-        print(f"Error during individual tests: {e}")
+        logger.error("Error during individual tests: %s", e)
         traceback.print_exc()
 
-# --- Run the tests ---
+
 if __name__ == "__main__":
     run_full_reports()
     test_individual_functions()

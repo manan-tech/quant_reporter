@@ -1,6 +1,9 @@
+import logging
 import pandas as pd
 import numpy as np
 import traceback
+
+logger = logging.getLogger(__name__)
 from .data import get_data
 from .metrics import calculate_metrics
 from .html_builder import generate_html_report
@@ -27,11 +30,12 @@ def create_validation_report(portfolio_dict, benchmark_ticker,
                              display_names=None,
                              sector_map=None,
                              sector_caps=None,
-                             sector_mins=None): 
+                             sector_mins=None,
+                             denoise_cov=False, n_components=3): 
     """
     Runs a full walk-forward validation (Out-of-Sample test)
     """
-    print("--- Starting Walk-Forward Validation Report ---")
+    logger.info("Starting Walk-Forward Validation Report")
     
     try:
         # --- 0. Set up names ---
@@ -42,12 +46,12 @@ def create_validation_report(portfolio_dict, benchmark_ticker,
         friendly_tickers = tickers
         
         if display_names:
-            print("Applying display names...")
+            logger.info("Applying display names...")
             friendly_benchmark = display_names.get(benchmark_ticker, benchmark_ticker)
             friendly_tickers = [display_names.get(t, t) for t in tickers]
 
         # --- 1. IN-SAMPLE (TRAIN) PERIOD ---
-        print(f"--- 1. Training Phase ({train_start} to {train_end}) ---")
+        logger.info("Training Phase (%s to %s)", train_start, train_end)
         
         all_train_tickers = tickers + [benchmark_ticker]
         train_price_data = get_data(all_train_tickers, train_start, train_end)
@@ -55,8 +59,9 @@ def create_validation_report(portfolio_dict, benchmark_ticker,
         
         if display_names:
             train_price_data.rename(columns=display_names, inplace=True)
-        
-        train_mean_returns, train_cov_matrix, _ = get_optimization_inputs(train_price_data[friendly_tickers])
+        train_mean_returns, train_cov_matrix, _ = get_optimization_inputs(
+            train_price_data[friendly_tickers], denoise_cov=denoise_cov, n_components=n_components
+        )
         
         # --- Find optimal weights ---
         bounds_uncon = tuple((0, 1) for _ in range(num_assets))
@@ -78,12 +83,12 @@ def create_validation_report(portfolio_dict, benchmark_ticker,
         }
         
         if sector_map and (sector_caps or sector_mins):
-            print("   Optimizing for Sector Balanced Portfolio...")
+            logger.info("Optimizing for Sector Balanced Portfolio...")
             sec_bal_weights_arr = find_optimal_portfolio(objective_neg_sharpe, train_mean_returns, train_cov_matrix, bounds_uncon, cons_sector, risk_free_rate)
             weights["Sector Balanced"] = {t: w for t, w in zip(friendly_tickers, sec_bal_weights_arr)}
 
         # --- Calculate IN-SAMPLE performance ---
-        print("Calculating In-Sample performance...")
+        logger.info("Calculating In-Sample performance...")
         in_sample_results = {}
         in_sample_eval_data = (train_price_data[[friendly_benchmark]] / train_price_data[[friendly_benchmark]].iloc[0]).copy()
         for name, w_dict in weights.items():
@@ -92,7 +97,7 @@ def create_validation_report(portfolio_dict, benchmark_ticker,
             in_sample_results[name] = metrics
 
         # --- 2. OUT-OF-SAMPLE (TEST) PERIOD ---
-        print(f"--- 2. Testing Phase ({test_start} to {test_end}) ---")
+        logger.info("Testing Phase (%s to %s)", test_start, test_end)
         
         all_test_tickers = tickers + [benchmark_ticker]
         test_price_data = get_data(all_test_tickers, test_start, test_end)
@@ -101,7 +106,7 @@ def create_validation_report(portfolio_dict, benchmark_ticker,
         if display_names:
             test_price_data.rename(columns=display_names, inplace=True)
             
-        print("Calculating Out-of-Sample performance...")
+        logger.info("Calculating Out-of-Sample performance...")
         out_sample_results = {}
         out_sample_eval_data = (test_price_data[[friendly_benchmark]] / test_price_data[[friendly_benchmark]].iloc[0]).copy()
         for name, w_dict in weights.items():
@@ -110,7 +115,7 @@ def create_validation_report(portfolio_dict, benchmark_ticker,
             out_sample_results[name] = metrics
 
         # --- 3. Compile Final Results Table ---
-        print("Compiling final report...")
+        logger.info("Compiling final report...")
         final_results = []
         metrics_to_show = {
             "CAGR (Asset)": "CAGR", "Annualized Volatility (Asset)": "Volatility",
@@ -151,8 +156,8 @@ def create_validation_report(portfolio_dict, benchmark_ticker,
         # --- 6. Generate Report ---
         generate_html_report(sections, title="Walk-Forward Validation Report", filename=filename)
         
-        print(f"--- Validation Report Generated: {filename} ---")
+        logger.info("Validation Report Generated: %s", filename)
         
     except Exception as e:
-        print(f"An error occurred during validation: {e}")
+        logger.error("An error occurred during validation: %s", e)
         traceback.print_exc()

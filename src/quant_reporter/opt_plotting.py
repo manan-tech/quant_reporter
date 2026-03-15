@@ -1,7 +1,10 @@
+import logging
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
+
+logger = logging.getLogger(__name__)
 import plotly.io as pio
 from plotly.subplots import make_subplots
 
@@ -14,7 +17,7 @@ def plot_efficient_frontier(mean_returns, cov_matrix, optimal_portfolios, fronti
     """
     Generates a Plotly scatter plot of the efficient frontier.
     """
-    print("Plotting Efficient Frontier...")
+    logger.debug("Plotting Efficient Frontier...")
     
     num_ports = 2500
     all_weights = np.zeros((num_ports, len(mean_returns)))
@@ -82,7 +85,7 @@ def plot_correlation_heatmap(log_returns):
     """
     Generates a Plotly heatmap of the asset correlation matrix.
     """
-    print("Plotting Correlation Heatmap...")
+    logger.debug("Plotting Correlation Heatmap...")
     corr_matrix = log_returns.corr()
     fig = px.imshow(
         corr_matrix, text_auto=".2f",
@@ -95,7 +98,7 @@ def plot_cumulative_comparison(cumulative_returns_df, benchmark_ticker):
     """
     Plots the "Growth of $1" for all optimized portfolios.
     """
-    print("Plotting Strategy Cumulative Returns...")
+    logger.debug("Plotting Strategy Cumulative Returns...")
     fig = go.Figure()
     
     for col in cumulative_returns_df.columns:
@@ -115,7 +118,7 @@ def plot_drawdown_comparison(drawdown_df, benchmark_ticker):
     """
     Plots the drawdown "underwater" curves for all portfolios.
     """
-    print("Plotting Strategy Drawdown...")
+    logger.debug("Plotting Strategy Drawdown...")
     fig = go.Figure()
     
     portfolios_to_plot = [col for col in drawdown_df.columns if col != benchmark_ticker]
@@ -137,7 +140,7 @@ def plot_rolling_sharpe(rolling_sharpe_df, benchmark_ticker):
     """
     Plots the 60-day rolling sharpe ratio for all strategies.
     """
-    print("Plotting Rolling Sharpe...")
+    logger.debug("Plotting Rolling Sharpe...")
     fig = go.Figure()
     
     portfolios_to_plot = [col for col in rolling_sharpe_df.columns if col != benchmark_ticker]
@@ -159,9 +162,10 @@ def plot_composition_pies(optimal_portfolios):
     """
     Plots side-by-side pie charts of portfolio weights.
     """
-    print("Plotting Composition Pies...")
+    logger.debug("Plotting Composition Pies...")
     
     port_names = list(optimal_portfolios.keys())
+    n = len(port_names)
     
     short_names = {
         "Equal Weight (Baseline)": "Equal Wt",
@@ -169,13 +173,15 @@ def plot_composition_pies(optimal_portfolios):
         "Balanced (40% Cap)": "Balanced (Asset Cap)",
         "Max Sharpe (Unconstrained)": "Max Sharpe",
         "Sector Balanced": "Balanced (Sector Cap)",
-        "User Portfolio": "User"
+        "User Portfolio": "User",
+        "Black-Litterman (Mkt Caps)": "Black-Litterman",
     }
     
     fig = make_subplots(
-        rows=1, cols=len(port_names),
-        specs=[[{'type':'domain'}] * len(port_names)],
-        subplot_titles=[short_names.get(name, name) for name in port_names]
+        rows=1, cols=n,
+        specs=[[{'type':'domain'}] * n],
+        subplot_titles=[short_names.get(name, name) for name in port_names],
+        horizontal_spacing=0.03
     )
     
     for i, name in enumerate(port_names):
@@ -184,18 +190,24 @@ def plot_composition_pies(optimal_portfolios):
         values = [weight for ticker, weight in weights_dict.items() if weight > 0.001]
         
         fig.add_trace(go.Pie(
-            labels=labels, values=values, name=name, hole=0.3
+            labels=labels, values=values, name=name, hole=0.3,
+            textinfo='percent+label',
+            textposition='inside',
         ), row=1, col=i+1)
-
-    fig.update_traces(textposition='inside', textinfo='percent+label')
-    fig.update_layout(title_text='Portfolio Strategy Compositions (by Asset)')
+    
+    fig.update_layout(
+        title_text='Portfolio Strategy Compositions (by Asset)',
+        width=max(900, n * 200),
+        height=400,
+        showlegend=False,
+    )
     return fig
 
 def plot_risk_contribution(optimal_portfolios, mean_returns, cov_matrix, tickers, risk_free_rate=0.02):
     """
     Plots a 100% stacked bar chart of portfolio risk contribution.
     """
-    print("Plotting Risk Contribution...")
+    logger.debug("Plotting Risk Contribution...")
     
     risk_data = []
     port_names = list(optimal_portfolios.keys())
@@ -230,7 +242,7 @@ def plot_monthly_heatmaps(eval_data, benchmark_ticker):
     """
     Plots a heatmap of monthly returns for each strategy.
     """
-    print("Plotting Monthly Returns Heatmaps...")
+    logger.debug("Plotting Monthly Returns Heatmaps...")
     
     port_names = [col for col in eval_data.columns if col != benchmark_ticker]
     
@@ -268,7 +280,7 @@ def plot_portfolio_vs_constituents(all_cumulative_returns):
     """
     Plots the cumulative returns for the portfolio and all its underlying assets.
     """
-    print("Plotting: Portfolio vs. Constituents")
+    logger.debug("Plotting Portfolio vs. Constituents...")
     fig = go.Figure()
     
     for col in all_cumulative_returns.columns:
@@ -292,22 +304,25 @@ def plot_sector_allocation_pies(optimal_portfolios, friendly_sector_map):
     """
     Plots side-by-side pie charts of portfolio weights aggregated by sector.
     """
-    print("Plotting Sector Allocation Pies...")
+    logger.debug("Plotting Sector Allocation Pies...")
     if not friendly_sector_map:
         return go.Figure().update_layout(title="Sector Allocation (No sector_map provided)")
 
     port_names = list(optimal_portfolios.keys())
+    n = len(port_names)
     
     short_names = {
         "Equal Weight (Baseline)": "Equal Wt", "Minimum Volatility": "Min Vol",
         "Balanced (40% Cap)": "Balanced (Asset Cap)", "Max Sharpe (Unconstrained)": "Max Sharpe",
-        "Sector Balanced": "Balanced (Sector Cap)", "User Portfolio": "User"
+        "Sector Balanced": "Balanced (Sector Cap)", "User Portfolio": "User",
+        "Black-Litterman (Mkt Caps)": "Black-Litterman",
     }
     
     fig = make_subplots(
-        rows=1, cols=len(port_names),
-        specs=[[{'type':'domain'}] * len(port_names)],
-        subplot_titles=[short_names.get(name, name) for name in port_names]
+        rows=1, cols=n,
+        specs=[[{'type':'domain'}] * n],
+        subplot_titles=[short_names.get(name, name) for name in port_names],
+        horizontal_spacing=0.03
     )
     
     for i, name in enumerate(port_names):
@@ -324,18 +339,24 @@ def plot_sector_allocation_pies(optimal_portfolios, friendly_sector_map):
         values = list(sector_weights.values())
         
         fig.add_trace(go.Pie(
-            labels=labels, values=values, name=name, hole=0.3
+            labels=labels, values=values, name=name, hole=0.3,
+            textinfo='percent+label',
+            textposition='inside',
         ), row=1, col=i+1)
 
-    fig.update_traces(textposition='inside', textinfo='percent+label')
-    fig.update_layout(title_text='Portfolio Strategy Compositions (by Sector)')
+    fig.update_layout(
+        title_text='Portfolio Strategy Compositions (by Sector)',
+        width=max(900, n * 200),
+        height=400,
+        showlegend=False,
+    )
     return fig
 
 def plot_sector_risk_contribution(optimal_portfolios, mean_returns, cov_matrix, tickers, friendly_sector_map, risk_free_rate=0.02):
     """
     Plots a 100% stacked bar chart of portfolio risk contribution by sector.
     """
-    print("Plotting Sector Risk Contribution...")
+    logger.debug("Plotting Sector Risk Contribution...")
     if not friendly_sector_map:
         return go.Figure().update_layout(title="Sector Risk Contribution (No sector_map provided)")
 
@@ -381,5 +402,194 @@ def plot_sector_risk_contribution(optimal_portfolios, mean_returns, cov_matrix, 
         xaxis_title=None,
         template='plotly_white',
         barmode='stack'
+    )
+    return fig
+
+
+# --- Black-Litterman Specific Plots ---
+
+def plot_bl_return_comparison(equilibrium_returns, posterior_returns, view_dict=None):
+    """
+    Grouped bar chart: Equilibrium Returns vs BL Posterior Returns for each asset.
+    Assets with active views are highlighted with separate legend entries.
+    """
+    logger.debug("Plotting BL Return Comparison...")
+    
+    tickers = list(equilibrium_returns.index)
+    eq_vals = equilibrium_returns.values
+    post_vals = posterior_returns.reindex(equilibrium_returns.index).values
+    
+    # Sort by absolute shift so biggest impacts are most visible
+    shifts = post_vals - eq_vals
+    sort_idx = np.argsort(np.abs(shifts))[::-1]
+    tickers_sorted = [tickers[i] for i in sort_idx]
+    eq_sorted = eq_vals[sort_idx]
+    post_sorted = post_vals[sort_idx]
+    
+    view_tickers = set(view_dict.keys()) if view_dict else set()
+    
+    # Split into view vs non-view indices for separate legend entries
+    view_x, view_y, view_text = [], [], []
+    noview_x, noview_y, noview_text = [], [], []
+    for t, p in zip(tickers_sorted, post_sorted):
+        if t in view_tickers:
+            view_x.append(t)
+            view_y.append(p)
+            view_text.append(f"{p:.1%}")
+        else:
+            noview_x.append(t)
+            noview_y.append(p)
+            noview_text.append(f"{p:.1%}")
+    
+    fig = go.Figure()
+    
+    # Equilibrium bars
+    fig.add_trace(go.Bar(
+        name='Equilibrium (Market Implied)',
+        x=tickers_sorted, y=eq_sorted,
+        marker_color='rgba(99, 110, 250, 0.6)',
+        text=[f"{v:.1%}" for v in eq_sorted],
+        textposition='outside'
+    ))
+    
+    # Posterior bars for assets WITH views (red)
+    if view_x:
+        fig.add_trace(go.Bar(
+            name='BL Posterior (With View)',
+            x=view_x, y=view_y,
+            marker_color='rgba(255, 107, 107, 0.85)',
+            text=view_text,
+            textposition='outside'
+        ))
+    
+    # Posterior bars for assets WITHOUT views (green)
+    if noview_x:
+        fig.add_trace(go.Bar(
+            name='BL Posterior (No View)',
+            x=noview_x, y=noview_y,
+            marker_color='rgba(0, 204, 150, 0.7)',
+            text=noview_text,
+            textposition='outside'
+        ))
+    
+    fig.update_layout(
+        title='Black-Litterman: Equilibrium vs Posterior Expected Returns',
+        xaxis_title='Asset',
+        yaxis_title='Annualized Expected Return',
+        yaxis_tickformat='.0%',
+        barmode='group',
+        template='plotly_white',
+        xaxis_tickangle=-45,
+        legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
+        margin=dict(b=120),
+    )
+    return fig
+
+
+def plot_bl_view_impact(equilibrium_returns, posterior_returns, view_dict):
+    """
+    Horizontal bar chart showing the shift (posterior - equilibrium) for each asset.
+    Only shows assets with material shifts. View assets are labeled.
+    """
+    logger.debug("Plotting BL View Impact...")
+    
+    tickers = list(equilibrium_returns.index)
+    shifts = posterior_returns.reindex(equilibrium_returns.index).values - equilibrium_returns.values
+    
+    # Sort by shift magnitude
+    sort_idx = np.argsort(shifts)
+    tickers_sorted = [tickers[i] for i in sort_idx]
+    shifts_sorted = shifts[sort_idx]
+    
+    view_tickers = set(view_dict.keys()) if view_dict else set()
+    
+    colors = []
+    for i, t in enumerate(tickers_sorted):
+        if t in view_tickers:
+            colors.append('rgba(255, 107, 107, 0.9)' if shifts_sorted[i] >= 0 else 'rgba(255, 71, 87, 0.9)')
+        else:
+            colors.append('rgba(0, 204, 150, 0.6)' if shifts_sorted[i] >= 0 else 'rgba(99, 110, 250, 0.6)')
+    
+    # Add view annotation
+    labels = []
+    for t in tickers_sorted:
+        if t in view_tickers:
+            labels.append(f"{t} ★ (View: {view_dict[t]:+.0%})")
+        else:
+            labels.append(t)
+    
+    fig = go.Figure(go.Bar(
+        y=labels,
+        x=shifts_sorted,
+        orientation='h',
+        marker_color=colors,
+        text=[f"{s:+.2%}" for s in shifts_sorted],
+        textposition='outside'
+    ))
+    
+    fig.add_vline(x=0, line_width=2, line_color="gray")
+    
+    fig.update_layout(
+        title='Black-Litterman: View Impact on Expected Returns',
+        xaxis_title='Shift from Equilibrium (Posterior − Equilibrium)',
+        xaxis_tickformat='.1%',
+        template='plotly_white',
+        height=max(400, len(tickers) * 25),
+        annotations=[dict(
+            text="★ = active investor view  |  Positive = BL raised expected return",
+            xref="paper", yref="paper", x=0.5, y=-0.08,
+            showarrow=False, font=dict(size=11, color="gray")
+        )]
+    )
+    return fig
+
+
+def plot_bl_weights_comparison(market_weights, bl_weights_dict, view_dict=None):
+    """
+    Grouped bar chart: Market-Cap Weights vs BL Optimized Weights.
+    """
+    logger.debug("Plotting BL Weights Comparison...")
+    
+    tickers = list(bl_weights_dict.keys())
+    bl_vals = np.array(list(bl_weights_dict.values()))
+    mkt_vals = market_weights.reindex(tickers).fillna(0).values
+    
+    # Sort by BL weight (descending)
+    sort_idx = np.argsort(bl_vals)[::-1]
+    tickers_sorted = [tickers[i] for i in sort_idx]
+    bl_sorted = bl_vals[sort_idx]
+    mkt_sorted = mkt_vals[sort_idx]
+    
+    # Only show assets with > 0.5% weight in either
+    mask = (bl_sorted > 0.005) | (mkt_sorted > 0.005)
+    tickers_filtered = [t for t, m in zip(tickers_sorted, mask) if m]
+    bl_filtered = bl_sorted[mask]
+    mkt_filtered = mkt_sorted[mask]
+    
+    fig = go.Figure()
+    
+    fig.add_trace(go.Bar(
+        name='Market-Cap Weights',
+        x=tickers_filtered, y=mkt_filtered,
+        marker_color='rgba(99, 110, 250, 0.6)',
+        text=[f"{v:.1%}" for v in mkt_filtered],
+        textposition='outside'
+    ))
+    
+    fig.add_trace(go.Bar(
+        name='BL Optimized Weights',
+        x=tickers_filtered, y=bl_filtered,
+        marker_color='rgba(0, 204, 150, 0.8)',
+        text=[f"{v:.1%}" for v in bl_filtered],
+        textposition='outside'
+    ))
+    
+    fig.update_layout(
+        title='Black-Litterman: Market-Cap Weights vs Optimized Weights',
+        xaxis_title='Asset',
+        yaxis_title='Portfolio Weight',
+        yaxis_tickformat='.0%',
+        barmode='group',
+        template='plotly_white',
     )
     return fig

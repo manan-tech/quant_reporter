@@ -1,12 +1,15 @@
+import logging
 import pandas as pd
 import yfinance as yf
+
+logger = logging.getLogger(__name__)
 
 def get_data(tickers, start_date, end_date):
     """
     Fetches adjusted close data for a list of tickers, handling
     mismatched trading days and missing data.
     """
-    print(f"Fetching data for {', '.join(tickers)}...")
+    logger.info("Fetching data for %s...", ', '.join(tickers))
     try:
         # threads=False to avoid "OperationalError: unable to open database file" with yfinance cache
         all_data = yf.download(tickers, start=start_date, end=end_date, threads=False)
@@ -32,5 +35,5 @@ def get_data(tickers, start_date, end_date):
         return data_filled
         
     except Exception as e:
-        print(f"Error fetching data: {e}")
+        logger.error("Error fetching data: %s", e)
         return None

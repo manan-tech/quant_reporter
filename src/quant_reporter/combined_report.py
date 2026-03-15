@@ -1,6 +1,9 @@
+import logging
 import pandas as pd
 import numpy as np
 import traceback
+
+logger = logging.getLogger(__name__)
 from datetime import datetime, timedelta
 
 # --- Import from our own package ---
@@ -35,7 +38,10 @@ from .opt_plotting import (
     plot_composition_pies,
     plot_risk_contribution,
     plot_sector_allocation_pies,  
-    plot_sector_risk_contribution 
+    plot_sector_risk_contribution,
+    plot_bl_return_comparison,
+    plot_bl_view_impact,
+    plot_bl_weights_comparison
 )
 from .monte_carlo import (
     simulate_portfolio_paths,
@@ -45,6 +51,13 @@ from .monte_carlo import (
     plot_simulation_distribution,
     plot_probability_curve
 )
+from .black_litterman import (
+    get_market_caps,
+    calculate_market_weights,
+    calculate_implied_equilibrium_returns,
+    calculate_black_litterman_posterior
+)
+from .rebalancing import simulate_rebalanced_portfolio
 # --- End Imports ---
 
 
@@ -55,12 +68,18 @@ def create_combined_report(portfolio_dict, benchmark_ticker,
                            display_names=None,
                            sector_map=None,
                            sector_caps=None,
-                           sector_mins=None): 
+                           sector_mins=None,
+                           bl_views=None,
+                           bl_view_confidences=None,
+                           bl_relative_views=None,
+                           bl_relative_view_confidences=None,
+                           rebalance_freq=None, desc=False,
+                           denoise_cov=False, n_components=3): 
     """
     Generates a single, combined HTML report for portfolio analysis,
     optimization, and walk-forward validation.
     """
-    print("--- 1. INITIATING COMBINED REPORT ---")
+    logger.info("Initiating Combined Report")
     
     try:
         # --- A. Date & Name Setup ---
@@ -71,16 +90,16 @@ def create_combined_report(portfolio_dict, benchmark_ticker,
         full_start = train_start
         full_end = test_end
         
-        print(f"Full Period:  {full_start} to {full_end}")
-        print(f"Train Period: {train_start} to {train_end}")
-        print(f"Test Period:  {test_start} to {test_end}")
+        logger.info("Full Period:  %s to %s", full_start, full_end)
+        logger.info("Train Period: %s to %s", train_start, train_end)
+        logger.info("Test Period:  %s to %s", test_start, test_end)
 
         if isinstance(risk_free_rate, str) and risk_free_rate.lower() == 'auto':
             rfr = get_risk_free_rate()
         elif isinstance(risk_free_rate, (int, float)):
             rfr = risk_free_rate
         else: rfr = 0.02
-        print(f"Using Risk-Free Rate: {rfr:.2%} ---")
+        logger.info("Using Risk-Free Rate: %.2f%%", rfr * 100)
 
         tickers = list(portfolio_dict.keys())
         user_weights_dict_raw = portfolio_dict
@@ -96,7 +115,7 @@ def create_combined_report(portfolio_dict, benchmark_ticker,
              friendly_sector_map = sector_map
 
         # --- B. Data Fetching (All 3 periods) ---
-        print("\n--- 2. FETCHING ALL DATA ---")
+        logger.info("Fetching all data...")
         all_tickers = tickers + [benchmark_ticker]
         
         data_full = get_data(all_tickers, full_start, full_end)
@@ -112,7 +131,7 @@ def create_combined_report(portfolio_dict, benchmark_ticker,
             data_test.rename(columns=display_names, inplace=True)
 
         # --- C. Run Portfolio Report (Full Period) ---
-        print("\n--- 3. RUNNING USER PORTFOLIO REPORT (Full Period) ---")
+        logger.info("Running user portfolio report (Full Period)...")
         
         pr_eval_data = (data_full[[friendly_benchmark]] / data_full[[friendly_benchmark]].iloc[0]).copy()
         pr_eval_data['My Portfolio'] = get_portfolio_price(data_full[friendly_tickers], user_friendly_weights)
@@ -121,30 +140,87 @@ def create_combined_report(portfolio_dict, benchmark_ticker,
             "cumulative": plot_cumulative_returns(pr_plot_data, 'My Portfolio', friendly_benchmark),
             "regression": plot_regression(pr_plot_data, pr_metrics, 'My Portfolio', friendly_benchmark)
         }
+        
+        pr_cumulative_desc = "Shows the growth of $1 invested at the start of the Full Period, comparing your portfolio directly against the benchmark. Look for consistent outperformance." if desc else None
+        pr_regression_desc = "Scatter plot of your portfolio's daily returns versus the benchmark's returns. The slope of the line (Beta) indicates market risk, while the y-intercept (Alpha) indicates outperformance independent of the market." if desc else None
+
         pr_rolling_returns_html = calculate_rolling_returns(pr_eval_data).to_html(classes='metrics-table')
         
         # --- D. Run Optimization & Validation (Train/Test Split) ---
-        print("\n--- 4. RUNNING OPTIMIZATION & VALIDATION ---")
+        logger.info("Running optimization & validation...")
         
+        # Translate BL view keys from raw tickers to display names 
+        # (the covariance matrix uses display names at this point)
+        friendly_bl_views = None
+        friendly_bl_confidences = None
+        if bl_views and display_names:
+            friendly_bl_views = {display_names.get(t, t): v for t, v in bl_views.items()}
+        elif bl_views:
+            friendly_bl_views = bl_views
+        if bl_view_confidences and display_names:
+            friendly_bl_confidences = {display_names.get(t, t): v for t, v in bl_view_confidences.items()}
+        elif bl_view_confidences:
+            friendly_bl_confidences = bl_view_confidences
+
+        # Translate BL relative view keys from raw tickers to display names
+        friendly_bl_relative_views = None
+        friendly_bl_relative_confidences = bl_relative_view_confidences
+        if bl_relative_views and display_names:
+            friendly_bl_relative_views = [
+                (display_names.get(o, o), display_names.get(u, u), s)
+                for o, u, s in bl_relative_views
+            ]
+        elif bl_relative_views:
+            friendly_bl_relative_views = bl_relative_views
+
         val_results = _run_validation_logic(
             data_train, data_test, tickers, friendly_tickers, friendly_benchmark, user_friendly_weights, 
-            rfr, sector_map, sector_caps, sector_mins, friendly_sector_map # <-- Pass maps
+            rfr, sector_map, sector_caps, sector_mins, friendly_sector_map,
+            bl_views=friendly_bl_views, bl_view_confidences=friendly_bl_confidences,
+            bl_relative_views=friendly_bl_relative_views,
+            bl_relative_view_confidences=friendly_bl_relative_confidences,
+            rebalance_freq=rebalance_freq, desc=desc,
+            denoise_cov=denoise_cov, n_components=n_components
         )
         
-        # --- E. Generate Final HTML ---
-        print("\n--- 5. GENERATING COMBINED HTML ---")
+        # --- E. Prepare Descriptions ---
+        # 1. Optimization 
+        opt_pie_desc = "Breakdown of the specific underlying assets allocated to each optimization strategy based on the Training Data." if desc else None
+        opt_sec_pie_desc = "Broader view of the asset allocations grouped by their market sector." if desc else None
+        opt_risk_desc = "Decomposition of portfolio volatility. Shows which individual assets contribute the most to the portfolio's overall price swings." if desc else None
+        opt_sec_risk_desc = "Decomposition of portfolio volatility grouped by sector. Helps identify unintended macro risk concentrations." if desc else None
+        opt_roll_desc = "60-day rolling Sharpe ratio over the training period. Tracks how risk-adjusted performance changed dynamically over time. Values > 1 indicate excellent historical risk-adjusted returns." if desc else None
+        opt_front_desc = "The Efficient Frontier plots the optimal tradeoff curve between Risk (Volatility) and Reward (Expected Return). Portfolios lying on the dotted line offer the best theoretical return for their level of risk." if desc else None
+        opt_heat_desc = "Correlation matrix of the assets. Green implies assets move together, red implies they move inversely. Lower correlations generally improve diversification benefits." if desc else None
+
+        # 2. Validation
+        val_cum_desc = "Out-of-sample performance: How the optimized portfolios would have performed if deployed during the Test Period. This is the true test of robustness." if desc else None
+        val_draw_desc = "Measures peak-to-trough declines during the Test Period. Flattish lines at 0 indicate all-time highs, while deep dips quantify maximum historical pain." if desc else None
+
+        # 3. Monte Carlo
+        mc_paths_desc = "Randomly generated potential future trajectories for the User Portfolio based on its historical volatility and returns. Gives a sense of the 'cone of uncertainty'." if desc else None
+        mc_dist_desc = "Histogram showing the distribution of final portfolio values across all 1000 simulations. Focus on the 5th and 95th percentiles to understand the tail risks and upside potential." if desc else None
+        mc_prob_desc = "The chance of achieving at least a target cumulative return over the horizon. Use this to gauge the likelihood of hitting specific financial goals." if desc else None
+
+        # 4. Black-Litterman
+        bl_comp_desc = "Compares the purely market-implied (Equilibrium) returns against the Posterior returns generated after blending in the investor views." if desc else None
+        bl_imp_desc = "Shows exactly how much the investor views shifted the expected returns upwards or downwards from the baseline equilibrium." if desc else None
+        bl_wgt_desc = "How the resulting optimal Black-Litterman portfolio weights differ from the standard market-cap weighted allocation." if desc else None
+
+        # --- F. Generate Final HTML ---
+        logger.info("Generating combined HTML...")
         
         sections = [
             {
                 "title": "1. User Portfolio (Full Period)",
                 "description": f"Analysis of your user-defined portfolio mix ({pr_metrics.get('CAGR (Asset)', 'N/A')} CAGR) over the full historical period.",
                 "sidebar": [
-                    {"title": "User Portfolio Metrics (Full)", "type": "metrics", "data": pr_metrics},
-                    {"title": "User Portfolio Rolling Returns (Full)", "type": "table_html", "data": pr_rolling_returns_html}
+                    {"title": "Performance Metrics", "type": "metrics", "data": pr_metrics},
+                    {"title": "Rolling Returns Summary", "type": "table_html", "data": pr_rolling_returns_html}
                 ],
                 "main_content": [
-                    {"title": "Portfolio Cumulative Returns", "type": "plot", "data": pr_plots['cumulative'], "cdn_needed": True},
-                    {"title": "Portfolio Alpha/Beta Regression", "type": "plot", "data": pr_plots['regression']}
+                    {"title": "Cumulative Returns", "type": "plot", "data": pr_plots["cumulative"], "description": pr_cumulative_desc},
+                    {"title": "Regression Analysis", "type": "plot", "data": pr_plots["regression"], "description": pr_regression_desc}
                 ]
             },
             {
@@ -154,13 +230,13 @@ def create_combined_report(portfolio_dict, benchmark_ticker,
                     {"title": "Asset-Benchmark Correlation (Train)", "type": "table_html", "data": val_results["asset_corr_html"]}
                 ],
                 "main_content": [
-                    {"title": "Strategy Compositions (by Asset)", "type": "plot", "data": val_results['optimization_plots']['pie_plot']},
-                    {"title": "Strategy Compositions (by Sector)", "type": "plot", "data": val_results['optimization_plots']['sector_pie_plot']},
-                    {"title": "Portfolio Risk Contribution (by Asset)", "type": "plot", "data": val_results['optimization_plots']['risk_contribution']},
-                    {"title": "Portfolio Risk Contribution (by Sector)", "type": "plot", "data": val_results['optimization_plots']['sector_risk_contribution']},
-                    {"title": "Strategy Rolling Sharpe Ratio (from Train)", "type": "plot", "data": val_results['optimization_plots']['rolling_sharpe_plot']},
-                    {"title": "Efficient Frontier (from Train)", "type": "plot", "data": val_results['optimization_plots']['frontier']},
-                    {"title": "Asset Correlation Heatmap (from Train)", "type": "plot", "data": val_results['optimization_plots']['heatmap']}
+                    {"title": "Strategy Compositions (by Asset)", "type": "plot", "data": val_results['optimization_plots']['pie_plot'], "description": opt_pie_desc},
+                    {"title": "Strategy Compositions (by Sector)", "type": "plot", "data": val_results['optimization_plots']['sector_pie_plot'], "description": opt_sec_pie_desc},
+                    {"title": "Portfolio Risk Contribution (by Asset)", "type": "plot", "data": val_results['optimization_plots']['risk_contribution'], "description": opt_risk_desc},
+                    {"title": "Portfolio Risk Contribution (by Sector)", "type": "plot", "data": val_results['optimization_plots']['sector_risk_contribution'], "description": opt_sec_risk_desc},
+                    {"title": "Strategy Rolling Sharpe Ratio (from Train)", "type": "plot", "data": val_results['optimization_plots']['rolling_sharpe_plot'], "description": opt_roll_desc},
+                    {"title": "Efficient Frontier (from Train)", "type": "plot", "data": val_results['optimization_plots']['frontier'], "description": opt_front_desc},
+                    {"title": "Asset Correlation Heatmap (from Train)", "type": "plot", "data": val_results['optimization_plots']['heatmap'], "description": opt_heat_desc}
                 ]
             },
             {
@@ -169,8 +245,8 @@ def create_combined_report(portfolio_dict, benchmark_ticker,
                 "sidebar": [],
                 "main_content": [
                     {"title": "In-Sample vs. Out-of-Sample Performance", "type": "table_html", "data": val_results["table_html"]},
-                    {"title": "Out-of-Sample Cumulative Returns", "type": "plot", "data": val_results['validation_plots']['cumulative_plot']},
-                    {"title": "Out-of-Sample Drawdown", "type": "plot", "data": val_results['validation_plots']['drawdown_plot']}
+                    {"title": "Out-of-Sample Cumulative Returns", "type": "plot", "data": val_results['validation_plots']['cumulative_plot'], "description": val_cum_desc},
+                    {"title": "Out-of-Sample Drawdown", "type": "plot", "data": val_results['validation_plots']['drawdown_plot'], "description": val_draw_desc}
                 ]
             },
             {
@@ -181,25 +257,59 @@ def create_combined_report(portfolio_dict, benchmark_ticker,
                     {"title": "Success Probabilities", "type": "metrics", "data": val_results['mc_probs']}
                 ],
                 "main_content": [
-                    {"title": "Projected Future Paths", "type": "plot", "data": val_results['mc_plots']['paths']},
-                    {"title": "Distribution of Final Returns", "type": "plot", "data": val_results['mc_plots']['dist']},
-                    {"title": "Probability of Exceeding Return", "type": "plot", "data": val_results['mc_plots']['prob_curve']}
+                    {"title": "Projected Future Paths", "type": "plot", "data": val_results['mc_plots']['paths'], "description": mc_paths_desc},
+                    {"title": "Distribution of Final Returns", "type": "plot", "data": val_results['mc_plots']['dist'], "description": mc_dist_desc},
+                    {"title": "Probability of Exceeding Return", "type": "plot", "data": val_results['mc_plots']['prob_curve'], "description": mc_prob_desc}
                 ]
             }
         ]
         
+        # --- Conditionally add BL Deep Dive section ---
+        if val_results.get('bl_plots'):
+            bl_main_content = []
+            if 'return_comparison' in val_results['bl_plots']:
+                bl_main_content.append({
+                    "title": "Equilibrium vs Posterior Expected Returns",
+                    "type": "plot", "data": val_results['bl_plots']['return_comparison'],
+                    "description": bl_comp_desc
+                })
+            if 'view_impact' in val_results['bl_plots']:
+                bl_main_content.append({
+                    "title": "View Impact: Shift from Market Equilibrium",
+                    "type": "plot", "data": val_results['bl_plots']['view_impact'],
+                    "description": bl_imp_desc
+                })
+            if 'weights_comparison' in val_results['bl_plots']:
+                bl_main_content.append({
+                    "title": "Market-Cap Weights vs BL Optimized Weights",
+                    "type": "plot", "data": val_results['bl_plots']['weights_comparison'],
+                    "description": bl_wgt_desc
+                })
+            
+            if bl_main_content:
+                sections.append({
+                    "title": "5. Black-Litterman Deep Dive",
+                    "description": "How investor views shifted expected returns from market equilibrium, and the resulting portfolio weight differences.",
+                    "sidebar": [],
+                    "main_content": bl_main_content
+                })
+        
         generate_html_report(sections, title="Combined Portfolio Report", filename=filename)
         
-        print(f"--- Combined Report Generated: {filename} ---")
+        logger.info("Combined Report Generated: %s", filename)
         
     except Exception as e:
-        print(f"An error occurred during combined report generation: {e}")
+        logger.error("An error occurred during combined report generation: %s", e)
         traceback.print_exc()
 
 # --- 4. Helper: Run Validation Logic ---
 
 def _run_validation_logic(data_train, data_test, tickers, friendly_tickers, friendly_benchmark, user_friendly_weights, 
-                          rfr, sector_map, sector_caps, sector_mins, friendly_sector_map): # <-- NEW
+                          rfr, sector_map, sector_caps, sector_mins, friendly_sector_map,
+                          bl_views=None, bl_view_confidences=None,
+                          bl_relative_views=None, bl_relative_view_confidences=None,
+                          rebalance_freq=None, desc=False,
+                          denoise_cov=False, n_components=3):
     """
     Runs the walk-forward validation and all optimization analysis on the train data.
     Returns a dictionary of all results and plot figures.
@@ -207,10 +317,14 @@ def _run_validation_logic(data_train, data_test, tickers, friendly_tickers, frie
     num_assets = len(friendly_tickers)
     
     # --- 1. Train Phase (Optimization) ---
-    print("   Running optimization on training data...")
-    train_mean_returns, train_cov_matrix, train_log_returns = get_optimization_inputs(data_train[friendly_tickers])
+    logger.info("Calculating optimal weights based on Training Data...")
     
-    # Define constraints
+    # Use denoising if requested
+    train_mean_returns, train_cov_matrix, train_log_returns = get_optimization_inputs(
+        data_train[friendly_tickers], denoise_cov=denoise_cov, n_components=n_components
+    )
+    
+    # 1a. Standard Constraints & Bounds
     bounds_uncon = tuple((0, 1) for _ in range(num_assets))
     cons_uncon = build_constraints(num_assets, tickers)
     bounds_bal = tuple((0, 0.40) for _ in range(num_assets))
@@ -221,6 +335,43 @@ def _run_validation_logic(data_train, data_test, tickers, friendly_tickers, frie
     max_sharpe_weights_arr = find_optimal_portfolio(objective_neg_sharpe, train_mean_returns, train_cov_matrix, bounds_uncon, cons_uncon, rfr)
     bal_weights_arr = find_optimal_portfolio(objective_neg_sharpe, train_mean_returns, train_cov_matrix, bounds_bal, cons_bal, rfr)
     equal_weights_arr = np.array([1./num_assets] * num_assets)
+
+    # --- 1b. Black-Litterman Optimization ---
+    logger.info("Running Black-Litterman optimization...")
+    bl_equilibrium_returns = None
+    bl_market_weights = None
+    try:
+        # Fetch market caps for the training period assets
+        market_caps = get_market_caps(tickers)
+        
+        # Calculate market-cap weights and equilibrium returns (for visualization)
+        bl_market_weights = calculate_market_weights(market_caps)
+        bl_market_weights = bl_market_weights.reindex(friendly_tickers).fillna(0)
+        bl_market_weights = bl_market_weights / bl_market_weights.sum()
+        bl_equilibrium_returns = calculate_implied_equilibrium_returns(
+            train_cov_matrix, bl_market_weights, risk_aversion=2.5
+        )
+        
+        # Calculate Posterior returns with views
+        bl_means, bl_cov = calculate_black_litterman_posterior(
+            train_mean_returns, 
+            train_cov_matrix, 
+            market_caps=market_caps,
+            risk_aversion=2.5,
+            view_dict=bl_views,
+            view_confidences=bl_view_confidences,
+            relative_views=bl_relative_views,
+            relative_view_confidences=bl_relative_view_confidences
+        )
+        
+        # Optimize using BL estimates (Max Sharpe on BL posterior)
+        bl_weights_arr = find_optimal_portfolio(objective_neg_sharpe, bl_means, bl_cov, bounds_uncon, cons_uncon, rfr)
+        has_bl = True
+    except Exception as e:
+        logger.warning("Black-Litterman optimization failed: %s", e)
+        traceback.print_exc()
+        bl_weights_arr = None
+        has_bl = False
     
     weights = {
         "User Portfolio": user_friendly_weights,
@@ -230,31 +381,51 @@ def _run_validation_logic(data_train, data_test, tickers, friendly_tickers, frie
         "Max Sharpe": {t: w for t, w in zip(friendly_tickers, max_sharpe_weights_arr)}
     }
     
+    if has_bl and bl_weights_arr is not None:
+        weights["Black-Litterman (Mkt Caps)"] = {t: w for t, w in zip(friendly_tickers, bl_weights_arr)}
+    
     if sector_map and (sector_caps or sector_mins):
-        print("   Optimizing for Sector Balanced Portfolio...")
+        logger.info("Optimizing for Sector Balanced Portfolio...")
         sec_bal_weights_arr = find_optimal_portfolio(objective_neg_sharpe, train_mean_returns, train_cov_matrix, bounds_uncon, cons_sector, rfr)
         weights["Sector Balanced"] = {t: w for t, w in zip(friendly_tickers, sec_bal_weights_arr)}
 
     # --- 2. In-Sample Evaluation (on Train data) ---
-    print("   Calculating In-Sample performance...")
+    logger.info("Calculating In-Sample performance...")
+    if rebalance_freq:
+        logger.info("Using rebalanced portfolios (freq=%s) for in-sample.", rebalance_freq)
     in_sample_results = {}
     in_sample_eval_data = (data_train[[friendly_benchmark]] / data_train[[friendly_benchmark]].iloc[0]).copy()
     for name, w_dict in weights.items():
-        in_sample_eval_data[name] = get_portfolio_price(data_train[friendly_tickers], w_dict)
+        if rebalance_freq is not None:
+            w_series = pd.Series(w_dict)
+            w_series.index = [t for t in tickers if friendly_tickers[tickers.index(t)] in w_dict.keys() or t in w_dict.keys()]
+            # Create a localized copy of train data with raw tickers for simulation
+            train_raw = data_train[friendly_tickers].copy()
+            train_raw.columns = tickers
+            in_sample_eval_data[name] = simulate_rebalanced_portfolio(train_raw, w_series, rebalance_freq)
+        else:
+            in_sample_eval_data[name] = get_portfolio_price(data_train[friendly_tickers], w_dict)
         metrics, _ = calculate_metrics(in_sample_eval_data, name, friendly_benchmark, rfr)
         in_sample_results[name] = metrics
 
     # --- 3. Out-of-Sample Evaluation (on Test data) ---
-    print("   Calculating Out-of-Sample performance...")
+    logger.info("Calculating Out-of-Sample performance...")
+    if rebalance_freq:
+        logger.info("Using rebalanced portfolios (freq=%s) for out-of-sample.", rebalance_freq)
     out_sample_results = {}
     out_sample_eval_data = (data_test[[friendly_benchmark]] / data_test[[friendly_benchmark]].iloc[0]).copy()
     for name, w_dict in weights.items():
-        out_sample_eval_data[name] = get_portfolio_price(data_test[friendly_tickers], w_dict)
+        if rebalance_freq is not None:
+            out_sample_eval_data[name] = simulate_rebalanced_portfolio(
+                data_test[friendly_tickers], w_dict, rebalance_freq=rebalance_freq
+            )
+        else:
+            out_sample_eval_data[name] = get_portfolio_price(data_test[friendly_tickers], w_dict)
         metrics, _ = calculate_metrics(out_sample_eval_data, name, friendly_benchmark, rfr)
         out_sample_results[name] = metrics
         
     # --- 4. Compile Validation Results Table ---
-    print("   Compiling validation table...")
+    logger.info("Compiling validation table...")
     final_results = []
     metrics_to_show = {
         "CAGR (Asset)": "CAGR", "Annualized Volatility (Asset)": "Volatility",
@@ -274,7 +445,7 @@ def _run_validation_logic(data_train, data_test, tickers, friendly_tickers, frie
     validation_table_html = results_df.to_html(classes='metrics-table', float_format='{:.2%}'.format)
 
     # --- 5. Generate Validation Plots (Out-of-Sample) ---
-    print("   Generating validation plots...")
+    logger.info("Generating validation plots...")
     cumulative_returns_df = out_sample_eval_data
     drawdown_df = pd.DataFrame()
     for col in cumulative_returns_df.columns:
@@ -287,7 +458,7 @@ def _run_validation_logic(data_train, data_test, tickers, friendly_tickers, frie
     }
     
     # --- 6. Generate Optimization Plots (In-Sample) ---
-    print("   Generating optimization (training) plots...")
+    logger.info("Generating optimization (training) plots...")
     
     optimal_portfolios_train = {
         "Equal Wt (Baseline)": {"weights_arr": equal_weights_arr, "weights_dict": weights["Equal Wt (Baseline)"], "metrics": in_sample_results["Equal Wt (Baseline)"], "color": "blue"},
@@ -295,6 +466,14 @@ def _run_validation_logic(data_train, data_test, tickers, friendly_tickers, frie
         "Balanced (40% Cap)": {"weights_arr": bal_weights_arr, "weights_dict": weights["Balanced (40% Cap)"], "metrics": in_sample_results["Balanced (40% Cap)"], "color": "orange"},
         "Max Sharpe": {"weights_arr": max_sharpe_weights_arr, "weights_dict": weights["Max Sharpe"], "metrics": in_sample_results["Max Sharpe"], "color": "red"}
     }
+    if "Black-Litterman (Mkt Caps)" in weights:
+        bl_w = np.array(list(weights["Black-Litterman (Mkt Caps)"].values()))
+        optimal_portfolios_train["Black-Litterman"] = {
+            "weights_arr": bl_w, 
+            "weights_dict": weights["Black-Litterman (Mkt Caps)"], 
+            "metrics": in_sample_results["Black-Litterman (Mkt Caps)"], 
+            "color": "teal"
+        }
     if "Sector Balanced" in weights:
         sec_bal_weights_arr = np.array(list(weights["Sector Balanced"].values()))
         optimal_portfolios_train["Sector Balanced"] = {"weights_arr": sec_bal_weights_arr, "weights_dict": weights["Sector Balanced"], "metrics": in_sample_results["Sector Balanced"], "color": "purple"}
@@ -322,14 +501,14 @@ def _run_validation_logic(data_train, data_test, tickers, friendly_tickers, frie
     asset_corr_html = asset_corr_df.map(lambda x: f"{x:.2f}").to_html(classes='metrics-table')
 
     # --- 7. Run Monte Carlo Simulation (on User Portfolio) ---
-    print("   Running Monte Carlo simulation...")
+    logger.info("Running Monte Carlo simulation...")
     # We use the full period mean returns and cov matrix for the simulation to be most representative
     # Or we can use the train period. Let's use the train period to be consistent with the "validation" theme,
     # effectively asking "Based on what we knew then, what did we project?"
     # We set the time horizon to match the actual Test period length for a fair comparison.
     
     test_days = len(data_test)
-    print(f"   Simulation Horizon: {test_days} trading days (matching Test period)")
+    logger.info("Simulation Horizon: %d trading days (matching Test period)", test_days)
     
     user_weights_arr = np.array(list(user_friendly_weights.values()))
     mc_sim_df = simulate_portfolio_paths(user_weights_arr, train_mean_returns, train_cov_matrix, num_simulations=1000, time_horizon=test_days)
@@ -347,6 +526,27 @@ def _run_validation_logic(data_train, data_test, tickers, friendly_tickers, frie
         "prob_curve": plot_probability_curve(mc_total_returns, actual_return=actual_return)
     }
 
+    # --- 8. Generate BL-specific Plots ---
+    bl_plots = {}
+    if has_bl and bl_equilibrium_returns is not None:
+        logger.info("Generating Black-Litterman deep-dive plots...")
+        try:
+            bl_plots['return_comparison'] = plot_bl_return_comparison(
+                bl_equilibrium_returns, bl_means, view_dict=bl_views
+            )
+            if bl_views:
+                bl_plots['view_impact'] = plot_bl_view_impact(
+                    bl_equilibrium_returns, bl_means, bl_views
+                )
+            bl_plots['weights_comparison'] = plot_bl_weights_comparison(
+                bl_market_weights,
+                weights.get("Black-Litterman (Mkt Caps)", {}),
+                view_dict=bl_views
+            )
+        except Exception as e:
+            logger.warning("BL plot generation failed: %s", e)
+            traceback.print_exc()
+
     return {
         "table_html": validation_table_html,
         "validation_plots": validation_plots,
@@ -355,5 +555,6 @@ def _run_validation_logic(data_train, data_test, tickers, friendly_tickers, frie
         "mc_metrics": mc_metrics,
         "mc_probs": mc_probs,
         "mc_plots": mc_plots,
-        "test_days": test_days
+        "test_days": test_days,
+        "bl_plots": bl_plots
     }

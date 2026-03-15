@@ -1,12 +1,15 @@
+import logging
 import pandas as pd
 import numpy as np
 import plotly.io as pio
+
+logger = logging.getLogger(__name__)
 
 def generate_html_report(sections, title="Quantitative Report", filename="report.html"):
     """
     Generates a flexible, cross-browser HTML report from a list of sections.
     """
-    print("Assembling HTML report...")
+    logger.info("Assembling HTML report...")
 
     sidebar_html = ""
     main_content_html = ""
@@ -38,6 +41,8 @@ def generate_html_report(sections, title="Quantitative Report", filename="report
             main_content_html += f'<div class="{item_class}">'
             if "title" in item:
                 main_content_html += f'<h2>{item["title"]}</h2>'
+            if item.get("description"):
+                main_content_html += f'<p class="item-description">{item["description"]}</p>'
 
             if item["type"] == "plot":
                 if not js_added:
@@ -144,6 +149,7 @@ def generate_html_report(sections, title="Quantitative Report", filename="report
             .plot-item, .table-item {{
                 background-color: var(--card-color); border: 1px solid var(--border-color);
                 border-radius: 8px; padding: 20px;
+                overflow-x: auto;
             }}
             .metrics-grid {{
                 display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px;
@@ -155,9 +161,22 @@ def generate_html_report(sections, title="Quantitative Report", filename="report
             .report-section h1, .report-section h2, .report-section h3 {{
                 word-wrap: break-word;
             }}
+            .item-description {{
+                font-size: 0.95em;
+                color: var(--text-color-muted);
+                margin-top: -10px;
+                margin-bottom: 20px;
+                font-style: italic;
+                line-height: 1.5;
+            }}
             iframe, div.plotly-graph-div {{
-                width: 100% !important;
+                max-width: 100%;
                 height: auto !important;
+            }}
+            /* Exception: don't restrict width for pie charts which need horizontal scroll */
+            .plot-item iframe, .plot-item div.plotly-graph-div {{
+                max-width: none !important;
+                width: auto !important;
             }}
         </style>
     </head>
@@ -187,6 +206,6 @@ def generate_html_report(sections, title="Quantitative Report", filename="report
     try:
         with open(filename, 'w', encoding='utf-8') as f:
             f.write(html_template)
-        print(f"✅ Report successfully generated: {filename}")
+        logger.info("✅ Report successfully generated: %s", filename)
     except Exception as e:
-        print(f"❌ Error writing HTML file: {e}")
+        logger.error("❌ Error writing HTML file: %s", e)

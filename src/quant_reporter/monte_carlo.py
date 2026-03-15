@@ -1,7 +1,10 @@
+import logging
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
+
+logger = logging.getLogger(__name__)
 from .html_builder import generate_html_report
 from .opt_core import get_portfolio_stats
 
@@ -20,7 +23,7 @@ def simulate_portfolio_paths(weights, mean_returns, cov_matrix, num_simulations=
     Returns:
         simulation_df (pd.DataFrame): DataFrame of shape (time_horizon, num_simulations) with portfolio values.
     """
-    print(f"Running {num_simulations} Monte Carlo simulations for {time_horizon} days...")
+    logger.info("Running %d Monte Carlo simulations for %d days...", num_simulations, time_horizon)
     
     weights = np.array(weights)
     
@@ -113,7 +116,7 @@ def plot_probability_curve(total_returns, actual_return=None):
     """
     Plots the 'Probability of Exceeding Return X' curve (Survival Function).
     """
-    print("Plotting probability curve...")
+    logger.debug("Plotting probability curve...")
     # Create a range of return thresholds from min to max
     x_values = np.linspace(total_returns.min(), total_returns.max(), 100)
     y_values = [(total_returns > x).mean() for x in x_values]
@@ -155,7 +158,7 @@ def plot_simulation_paths(simulation_df, actual_path=None):
     Plots the first 100 simulation paths and the median path.
     Optionally overlays the actual realized path.
     """
-    print("Plotting Monte Carlo paths...")
+    logger.debug("Plotting Monte Carlo paths...")
     fig = go.Figure()
     
     # Plot first 100 paths (or less if fewer sims)
@@ -212,7 +215,7 @@ def plot_simulation_distribution(total_returns, actual_return=None):
     """
     Plots the histogram of final simulated returns.
     """
-    print("Plotting simulation distribution...")
+    logger.debug("Plotting simulation distribution...")
     fig = px.histogram(
         x=total_returns,
         nbins=50,
@@ -242,7 +245,7 @@ def create_monte_carlo_report(weights, mean_returns, cov_matrix,
     """
     Generates a standalone HTML report for Monte Carlo simulations.
     """
-    print("--- Starting Monte Carlo Report Generation ---")
+    logger.info("Starting Monte Carlo Report Generation")
     
     # Run Simulation
     sim_df = simulate_portfolio_paths(weights, mean_returns, cov_matrix, num_simulations, time_horizon, initial_investment)
@@ -272,4 +275,4 @@ def create_monte_carlo_report(weights, mean_returns, cov_matrix,
     }]
     
     generate_html_report(sections, title=title, filename=filename)
-    print(f"--- Monte Carlo Report Generated: {filename} ---")
+    logger.info("Monte Carlo Report Generated: %s", filename)
