@@ -39,6 +39,7 @@ from .opt_plotting import (
     plot_risk_contribution,
     plot_sector_allocation_pies,  
     plot_sector_risk_contribution,
+    plot_rebalancing_history,
     plot_bl_return_comparison,
     plot_bl_view_impact,
     plot_bl_weights_comparison
@@ -249,6 +250,19 @@ def create_combined_report(portfolio_dict, benchmark_ticker,
                     {"title": "Out-of-Sample Drawdown", "type": "plot", "data": val_results['validation_plots']['drawdown_plot'], "description": val_draw_desc}
                 ]
             },
+        ]
+
+        # Add Rebalancing History plot if it exists
+        if 'rebalance_history' in val_results['validation_plots']:
+            val_reb_desc = "Shows the evolution of portfolio weights during the test period. The 'hills' and 'valleys' represent asset weights drifting as prices change, while vertical resets indicate rebalancing back to target." if desc else None
+            sections[2]["main_content"].append({
+                "title": "Portfolio Rebalancing History (Weight Evolution)",
+                "type": "plot",
+                "data": val_results['validation_plots']['rebalance_history'],
+                "description": val_reb_desc
+            })
+        
+        sections.append(
             {
                 "title": "4. Monte Carlo Simulation (User Portfolio)",
                 "description": f"Projection of future portfolio value using 1000 simulations over the Test Period ({val_results['test_days']} trading days).",
@@ -262,7 +276,7 @@ def create_combined_report(portfolio_dict, benchmark_ticker,
                     {"title": "Probability of Exceeding Return", "type": "plot", "data": val_results['mc_plots']['prob_curve'], "description": mc_prob_desc}
                 ]
             }
-        ]
+        )
         
         # --- Conditionally add BL Deep Dive section ---
         if val_results.get('bl_plots'):
@@ -402,7 +416,7 @@ def _run_validation_logic(data_train, data_test, tickers, friendly_tickers, frie
             # Create a localized copy of train data with raw tickers for simulation
             train_raw = data_train[friendly_tickers].copy()
             train_raw.columns = tickers
-            in_sample_eval_data[name] = simulate_rebalanced_portfolio(train_raw, w_series, rebalance_freq)
+            in_sample_eval_data[name], _ = simulate_rebalanced_portfolio(train_raw, w_series, rebalance_freq)
         else:
             in_sample_eval_data[name] = get_portfolio_price(data_train[friendly_tickers], w_dict)
         metrics, _ = calculate_metrics(in_sample_eval_data, name, friendly_benchmark, rfr)
@@ -414,13 +428,22 @@ def _run_validation_logic(data_train, data_test, tickers, friendly_tickers, frie
         logger.info("Using rebalanced portfolios (freq=%s) for out-of-sample.", rebalance_freq)
     out_sample_results = {}
     out_sample_eval_data = (data_test[[friendly_benchmark]] / data_test[[friendly_benchmark]].iloc[0]).copy()
+    
+    rebalance_history_df = None
+    
     for name, w_dict in weights.items():
         if rebalance_freq is not None:
-            out_sample_eval_data[name] = simulate_rebalanced_portfolio(
+            p_series, w_history_df = simulate_rebalanced_portfolio(
                 data_test[friendly_tickers], w_dict, rebalance_freq=rebalance_freq
             )
+            out_sample_eval_data[name] = p_series
+            
+            # Save the weight history for the User Portfolio or Max Sharpe (as primary examples)
+            if rebalance_history_df is None or name == "User Portfolio":
+                rebalance_history_df = w_history_df
         else:
             out_sample_eval_data[name] = get_portfolio_price(data_test[friendly_tickers], w_dict)
+            
         metrics, _ = calculate_metrics(out_sample_eval_data, name, friendly_benchmark, rfr)
         out_sample_results[name] = metrics
         

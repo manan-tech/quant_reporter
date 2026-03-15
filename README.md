@@ -102,7 +102,38 @@ qr.create_combined_report(
 )
 ```
 
-### 3. create_monte_carlo_report (New!)
+### 3. Black-Litterman Portfolio Analysis
+
+The Black-Litterman model blends market equilibrium returns with your own investor views.
+
+```python
+import quant_reporter as qr
+
+# 1. Define your absolute views (Ticker: Expected Annual Return)
+bl_views = {
+    'NVDA': 0.25,  # You expect 25% return for NVDA
+    'PFE': -0.05   # You expect -5% return for PFE
+}
+
+# 2. Define confidence in those views (0.0=Uncertain to 1.0=Certain)
+bl_confidences = {
+    'NVDA': 0.9,
+    'PFE': 0.5
+}
+
+# 3. Generate the report (integrated into create_combined_report)
+qr.create_combined_report(
+    portfolio_dict={'AAPL': 0.5, 'MSFT': 0.5},
+    benchmark_ticker='SPY',
+    train_start='2015-01-01',
+    train_end='2023-12-31',
+    filename='Black_Litterman_Report.html',
+    bl_views=bl_views,
+    bl_view_confidences=bl_confidences
+)
+```
+
+### 4. create_monte_carlo_report (New!)
 
 Generates a dedicated Monte Carlo simulation report.
 
@@ -434,6 +465,65 @@ if __name__ == "__main__":
     test_individual_functions()
 ```
 
+## Detailed Report Documentation
+
+Quant Reporter offers four primary report types, each serving a different stage of the investment process.
+
+### 📊 1. Full Portfolio Report (`create_full_report`)
+*   **Purpose:** Simple performance audit for a fixed asset mix.
+*   **Best for:** Client reporting, quarterly reviews, and tracking performance against a standard benchmark (e.g., SPY).
+*   **Key Sections:**
+    *   **Cumulative Returns:** Growth of $1 vs. benchmark.
+    *   **Regression Analysis:** Scatter plot with Alpha (intercept) and Beta (slope) to identify market sensitivity.
+    *   **Rolling Returns:** Summary table of 1Y, 3Y, and 5Y rolling performance.
+
+### 🧪 2. Optimization Report (`create_optimization_report`)
+*   **Purpose:** Forward-looking asset allocation based on historical risk/reward.
+*   **Best for:** Rebalancing, initial portfolio construction, and exploring the Efficient Frontier.
+*   **Key Sections:**
+    *   **Efficient Frontier:** Standard MPT curve showing the risk/return tradeoff.
+    *   **Strategy Comparison:** Composition mix of Min Vol, Max Sharpe, and Equal Weight strategies.
+    *   **Risk Contribution:** Decomposition of portfolio volatility by asset and sector.
+    *   **Correlation Heatmap:** Visualizes diversification benefits (or lack thereof).
+
+### 🏆 3. Combined Report (`create_combined_report`)
+*   **Purpose:** The flagship "Professional Grade" analysis. Integrates optimization with out-of-sample validation.
+*   **Best for:** Stress testing strategies, identifying "overfitting" in backtests, and analyzing rebalancing impact.
+*   **Exclusive Features:**
+    *   **Walk-Forward Validation:** Distinct Training and Testing periods to simulate real-world forward performance.
+    *   **Weight Evolution Plot:** New area chart showing how weights drift due to price changes and reset during rebalancing.
+    *   **Black-Litterman Integration:** Blends market equilibrium with investor views (absolute or relative).
+
+### 🎲 4. Monte Carlo Report (`create_monte_carlo_report`)
+*   **Purpose:** Probabilistic risk assessment and goal planning.
+*   **Best for:** Retiremet planning and quantifying "Worst Case" scenarios.
+*   **Key Sections:**
+    *   **Future Paths:** 1000 simulated trajectories for the next year.
+    *   **Distribution of Returns:** Histogram of final outcomes (Log-Normal).
+    *   **Probability Curve:** The "Goal Likelihood" chart (e.g., "90% chance of remaining above -5% drawdown").
+
+---
+
+## Performance & Risk Metrics
+
+Every report automatically calculates and displays the following core metrics (Annualized where applicable):
+
+| Metric | Category | Description |
+| :--- | :--- | :--- |
+| **CAGR** | Performance | Compound Annual Growth Rate over the period. |
+| **Vol (Ann)** | Risk | Annualized Standard Deviation of daily returns. |
+| **Sharpe Ratio** | Risk-Adj | Excess return per unit of volatility (uses T-Bill benchmark). |
+| **Sortino Ratio** | Risk-Adj | Excess return per unit of *downside* volatility. |
+| **Max Drawdown** | Risk | Peak-to-trough decline (the "pain" metric). |
+| **Calmar Ratio** | Risk-Adj | CAGR / Max Drawdown (efficiency of recovery). |
+| **Value at Risk (VaR)** | Risk | 95% confidence level daily loss potential. |
+| **Conditional VaR (CVaR)** | Risk | Expected loss *if* the VaR threshold is breached. |
+| **Alpha** | Benchmark | Excess return independent of the market. |
+| **Beta** | Benchmark | Sensitivity to market moves (Beta > 1 is aggressive). |
+| **R-Squared** | Benchmark | Percentage of returns explained by the benchmark. |
+
+---
+
 ## API & Function Reference
 
 ### Main Report Functions
@@ -463,6 +553,7 @@ if __name__ == "__main__":
 	•	(…and all other plot_ functions in plotting.py and opt_plotting.py)
 
 ### Future Development
+*   **Rebalancing Logic:** While visualization is supported, the core rebalancing function is still to be added properly (full transactional simulation, tax-loss harvesting, etc.).
 *   **Advanced Attribution:** Implement Brinson Performance Attribution (Allocation vs. Selection effects).
 *   **Rolling Validation:** True "walk-forward" optimization with periodic rebalancing (e.g., re-optimize every quarter).
 *   **AI-Driven Insights:** Integrate LLMs to generate textual commentary and risk warnings based on the report data.

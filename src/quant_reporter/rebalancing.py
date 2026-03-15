@@ -37,15 +37,36 @@ def simulate_rebalanced_portfolio(price_data, weights_dict, rebalance_freq=None)
     prices = price_data[tickers].copy()
     
     if prices.empty:
-        return pd.Series(dtype=float)
-    
-    # -- Buy-and-hold (no rebalancing) -- identical to get_portfolio_price
-    if rebalance_freq is None:
-        normalized = prices / prices.iloc[0]
-        return (normalized * target_weights).sum(axis=1)
+        return pd.Series(dtype=float), pd.DataFrame(columns=tickers)
     
     # -- Determine rebalance dates --
-    rebalance_dates = _get_rebalance_dates(prices.index, rebalance_freq)
+    # The original _get_rebalance_dates function is replaced by inline logic here
+    if rebalance_freq is None:
+        rebalance_dates = set() # No rebalancing for buy-and-hold
+    elif isinstance(rebalance_freq, str):
+        if rebalance_freq == 'M':
+            # First trading day of each month
+            rebalance_dates = set(prices.index[prices.index.to_series().dt.month.diff() != 0])
+        elif rebalance_freq == 'Q':
+            # First trading day of each quarter
+            rebalance_dates = set(prices.index[prices.index.to_series().dt.quarter.diff() != 0])
+        elif rebalance_freq == 'Y':
+            # First trading day of each year
+            rebalance_dates = set(prices.index[prices.index.to_series().dt.year.diff() != 0])
+        else:
+            logger.warning("Unknown rebalance_freq '%s', defaulting to buy-and-hold.", rebalance_freq)
+            rebalance_dates = set()
+    elif isinstance(rebalance_freq, int):
+        # Every N trading days
+        rebalance_dates = set(prices.index[::rebalance_freq])
+    else:
+        logger.warning("Unknown rebalance_freq type '%s', defaulting to buy-and-hold.", type(rebalance_freq))
+        rebalance_dates = set()
+
+    # Ensure the first day is always a rebalance day to set initial weights
+    if prices.index.size > 0:
+        rebalance_dates.add(prices.index[0])
+
     logger.info("Rebalancing %d times over %d trading days (freq=%s)",
                 len(rebalance_dates), len(prices), rebalance_freq)
     
@@ -55,6 +76,9 @@ def simulate_rebalanced_portfolio(price_data, weights_dict, rebalance_freq=None)
     portfolio_value = 1.0
     current_weights = target_weights.copy()
     portfolio_values = [portfolio_value]
+    
+    # Track weight history - ensure it's always a dict of scalars
+    weight_history = [dict(zip(tickers, target_weights))]
     
     for i in range(1, len(prices)):
         date = prices.index[i]
@@ -75,8 +99,14 @@ def simulate_rebalanced_portfolio(price_data, weights_dict, rebalance_freq=None)
             current_weights = target_weights.copy()
         
         portfolio_values.append(portfolio_value)
+        
+        # Save weights into the history
+        weight_history.append(dict(zip(tickers, current_weights)))
     
-    return pd.Series(portfolio_values, index=prices.index, name="Portfolio")
+    wealth_series = pd.Series(portfolio_values, index=prices.index, name="Portfolio")
+    weight_history_df = pd.DataFrame(weight_history, index=prices.index)
+    
+    return wealth_series, weight_history_df
 
 
 def _get_rebalance_dates(date_index, freq):

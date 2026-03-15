@@ -406,6 +406,46 @@ def plot_sector_risk_contribution(optimal_portfolios, mean_returns, cov_matrix, 
     return fig
 
 
+# --- Rebalancing Specific Plots ---
+
+def plot_rebalancing_history(weight_history_df, title="Portfolio Weight Evolution (Rebalancing History)"):
+    """
+    Plots a stacked area chart showing how asset weights change over time
+    due to price drift and rebalancing.
+    """
+    logger.debug("Plotting Rebalancing History...")
+    
+    # Sort columns by average weight to make the chart cleaner
+    avg_weights = weight_history_df.mean().sort_values(ascending=False)
+    sorted_cols = avg_weights.index.tolist()
+    df_sorted = weight_history_df[sorted_cols]
+    
+    fig = go.Figure()
+    
+    for col in sorted_cols:
+        fig.add_trace(go.Scatter(
+            x=df_sorted.index,
+            y=df_sorted[col],
+            name=col,
+            mode='lines',
+            stackgroup='one', # This makes it a stacked area chart
+            line=dict(width=0.5),
+            hovertemplate='%{y:.2%}'
+        ))
+    
+    fig.update_layout(
+        title=title,
+        xaxis_title='Date',
+        yaxis_title='Weight',
+        yaxis_tickformat='.0%',
+        hovermode='x unified',
+        template='plotly_white',
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(t=80)
+    )
+    return fig
+
+
 # --- Black-Litterman Specific Plots ---
 
 def plot_bl_return_comparison(equilibrium_returns, posterior_returns, view_dict=None):
