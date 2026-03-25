@@ -225,11 +225,11 @@ def calculate_rolling_returns(cumulative_df):
     for name, days in periods.items():
         if len(first_col) > days:
             years = days / 252
-            rolling_returns[name] = (first_col.iloc[-1] / first_col.iloc[-days-1])**(1/years) - 1
+            rolling_returns[name] = {'Return': (first_col.iloc[-1] / first_col.iloc[-days-1])**(1/years) - 1}
         else:
-            rolling_returns[name] = np.nan
+            rolling_returns[name] = {'Return': np.nan}
             
-    return pd.DataFrame.from_dict(rolling_returns, orient='index', columns=['Return']).map(lambda x: f"{x:.2%}" if not pd.isna(x) else "N/A")
+    return pd.DataFrame.from_dict(rolling_returns, orient='index').map(lambda x: f"{x:.2%}" if not pd.isna(x) else "N/A")
 
 
 # --- 6. Covariance Matrix Validation and Regularization ---
