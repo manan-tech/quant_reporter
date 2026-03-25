@@ -33,6 +33,12 @@ from .opt_plotting import (
     plot_sector_allocation_pies,  
     plot_sector_risk_contribution 
 )
+from .advanced_optimizers import (
+    optimize_risk_parity,
+    optimize_hrp,
+    optimize_min_correlation,
+    optimize_max_diversification
+)
 
 def create_optimization_report(portfolio_dict, benchmark_ticker, start_date, end_date, 
                                filename="optimization_report.html", 
@@ -103,6 +109,43 @@ def create_optimization_report(portfolio_dict, benchmark_ticker, start_date, end
         equal_weights_arr = np.array([1./num_assets] * num_assets)
         equal_weights_dict = {t: w for t, w in zip(friendly_tickers, equal_weights_arr)}
 
+        # --- Advanced Optimizers ---
+        logger.info("Optimizing for Risk Parity...")
+        try:
+            risk_parity_weights_arr = optimize_risk_parity(cov_matrix)
+            risk_parity_weights_dict = {t: w for t, w in zip(friendly_tickers, risk_parity_weights_arr)}
+        except Exception as e:
+            logger.warning(f"Risk Parity optimization failed: {e}")
+            risk_parity_weights_arr = None
+            risk_parity_weights_dict = None
+
+        logger.info("Optimizing for Hierarchical Risk Parity (HRP)...")
+        try:
+            hrp_weights_arr, hrp_metadata = optimize_hrp(cov_matrix)
+            hrp_weights_dict = {t: w for t, w in zip(friendly_tickers, hrp_weights_arr)}
+        except Exception as e:
+            logger.warning(f"HRP optimization failed: {e}")
+            hrp_weights_arr = None
+            hrp_weights_dict = None
+
+        logger.info("Optimizing for Minimum Correlation...")
+        try:
+            min_corr_weights_arr = optimize_min_correlation(cov_matrix)
+            min_corr_weights_dict = {t: w for t, w in zip(friendly_tickers, min_corr_weights_arr)}
+        except Exception as e:
+            logger.warning(f"Min Correlation optimization failed: {e}")
+            min_corr_weights_arr = None
+            min_corr_weights_dict = None
+
+        logger.info("Optimizing for Maximum Diversification...")
+        try:
+            max_div_weights_arr = optimize_max_diversification(cov_matrix)
+            max_div_weights_dict = {t: w for t, w in zip(friendly_tickers, max_div_weights_arr)}
+        except Exception as e:
+            logger.warning(f"Max Diversification optimization failed: {e}")
+            max_div_weights_arr = None
+            max_div_weights_dict = None
+
         # --- 6. Evaluate Performance ---
         logger.info("Evaluating optimized portfolios...")
         
@@ -112,11 +155,31 @@ def create_optimization_report(portfolio_dict, benchmark_ticker, start_date, end
         eval_data['Max Sharpe Portfolio'] = get_portfolio_price(price_data[friendly_tickers], max_sharpe_weights_dict)
         eval_data['Balanced Portfolio'] = get_portfolio_price(price_data[friendly_tickers], bal_weights_dict)
         eval_data['Equal Wt Portfolio'] = get_portfolio_price(price_data[friendly_tickers], equal_weights_dict)
+        
+        # Add advanced optimizer portfolios
+        if risk_parity_weights_dict:
+            eval_data['Risk Parity'] = get_portfolio_price(price_data[friendly_tickers], risk_parity_weights_dict)
+        if hrp_weights_dict:
+            eval_data['HRP'] = get_portfolio_price(price_data[friendly_tickers], hrp_weights_dict)
+        if min_corr_weights_dict:
+            eval_data['Min Correlation'] = get_portfolio_price(price_data[friendly_tickers], min_corr_weights_dict)
+        if max_div_weights_dict:
+            eval_data['Max Diversification'] = get_portfolio_price(price_data[friendly_tickers], max_div_weights_dict)
 
         min_vol_metrics, _ = calculate_metrics(eval_data, 'Min Vol Portfolio', friendly_benchmark, rfr)
         max_sharpe_metrics, _ = calculate_metrics(eval_data, 'Max Sharpe Portfolio', friendly_benchmark, rfr)
         balanced_metrics, _ = calculate_metrics(eval_data, 'Balanced Portfolio', friendly_benchmark, rfr)
         equal_wt_metrics, _ = calculate_metrics(eval_data, 'Equal Wt Portfolio', friendly_benchmark, rfr)
+        
+        # Calculate metrics for advanced optimizers
+        if risk_parity_weights_dict:
+            risk_parity_metrics, _ = calculate_metrics(eval_data, 'Risk Parity', friendly_benchmark, rfr)
+        if hrp_weights_dict:
+            hrp_metrics, _ = calculate_metrics(eval_data, 'HRP', friendly_benchmark, rfr)
+        if min_corr_weights_dict:
+            min_corr_metrics, _ = calculate_metrics(eval_data, 'Min Correlation', friendly_benchmark, rfr)
+        if max_div_weights_dict:
+            max_div_metrics, _ = calculate_metrics(eval_data, 'Max Diversification', friendly_benchmark, rfr)
 
         # --- 7. Store results ---
         optimal_portfolios = {
@@ -125,6 +188,16 @@ def create_optimization_report(portfolio_dict, benchmark_ticker, start_date, end
             "Balanced (40% Cap)": {"weights_arr": bal_weights_arr, "weights_dict": bal_weights_dict, "metrics": balanced_metrics, "color": "orange"},
             "Max Sharpe (Unconstrained)": {"weights_arr": max_sharpe_weights_arr, "weights_dict": max_sharpe_weights_dict, "metrics": max_sharpe_metrics, "color": "red"}
         }
+        
+        # Add advanced optimizer portfolios
+        if risk_parity_weights_dict:
+            optimal_portfolios["Risk Parity"] = {"weights_arr": risk_parity_weights_arr, "weights_dict": risk_parity_weights_dict, "metrics": risk_parity_metrics, "color": "purple"}
+        if hrp_weights_dict:
+            optimal_portfolios["HRP"] = {"weights_arr": hrp_weights_arr, "weights_dict": hrp_weights_dict, "metrics": hrp_metrics, "color": "brown"}
+        if min_corr_weights_dict:
+            optimal_portfolios["Min Correlation"] = {"weights_arr": min_corr_weights_arr, "weights_dict": min_corr_weights_dict, "metrics": min_corr_metrics, "color": "pink"}
+        if max_div_weights_dict:
+            optimal_portfolios["Max Diversification"] = {"weights_arr": max_div_weights_arr, "weights_dict": max_div_weights_dict, "metrics": max_div_metrics, "color": "cyan"}
         
         if sector_map and (sector_caps or sector_mins):
             logger.info("Optimizing for Sector Balanced Portfolio...")

@@ -198,7 +198,7 @@ def plot_composition_pies(optimal_portfolios):
     fig.update_layout(
         title_text='Portfolio Strategy Compositions (by Asset)',
         width=max(900, n * 200),
-        height=400,
+        height=350,
         showlegend=False,
     )
     return fig
@@ -256,7 +256,7 @@ def plot_monthly_heatmaps(eval_data, benchmark_ticker):
     
     fig = make_subplots(
         rows=len(port_names), cols=1,
-        subplot_titles=port_names, vertical_spacing=0.1
+        subplot_titles=port_names, vertical_spacing=0.05
     )
 
     for i, name in enumerate(port_names):
@@ -267,12 +267,13 @@ def plot_monthly_heatmaps(eval_data, benchmark_ticker):
             z=pivot.values, x=pivot.columns, y=pivot.index,
             colorscale='RdYlGn', zmid=0,
             text=pivot.map(lambda x: f"{x:.1%}" if not pd.isna(x) else ""),
-            texttemplate="%{text}", name=name
+            texttemplate="%{text}", name=name,
+            showscale=(i == 0)
         ), row=i+1, col=1)
 
     fig.update_layout(
         title_text='Strategy Monthly Returns Heatmap',
-        height=300 * len(port_names), template='plotly_white'
+        height=180 * len(port_names), template='plotly_white'
     )
     return fig
 
@@ -347,7 +348,7 @@ def plot_sector_allocation_pies(optimal_portfolios, friendly_sector_map):
     fig.update_layout(
         title_text='Portfolio Strategy Compositions (by Sector)',
         width=max(900, n * 200),
-        height=400,
+        height=350,
         showlegend=False,
     )
     return fig

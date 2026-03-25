@@ -28,7 +28,29 @@ from .opt_core import (
     get_optimization_inputs,
     build_constraints,
     objective_min_variance,  
-    objective_neg_sharpe    
+    objective_neg_sharpe,
+    validate_covariance_matrix,
+    regularize_covariance
+)
+
+# --- Advanced Optimizers ---
+from .advanced_optimizers import (
+    optimize_risk_parity,
+    optimize_hrp,
+    optimize_min_correlation,
+    optimize_max_diversification
+)
+
+# --- Factor Models ---
+from .factor_models import (
+    fetch_fama_french_factors,
+    run_factor_regression,
+    compute_factor_attribution
+)
+
+# --- Performance Attribution ---
+from .attribution import (
+    compute_brinson_attribution
 )
 
 # --- Simple Plotting (for advanced use) ---
@@ -81,4 +103,4 @@ from .combined_report import create_combined_report
 # --- Rebalancing ---
 from .rebalancing import simulate_rebalanced_portfolio
 
-__version__ = "1.0.0" 
+__version__ = "1.1.0" 

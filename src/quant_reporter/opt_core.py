@@ -216,11 +216,120 @@ def calculate_rolling_returns(cumulative_df):
     periods = {'1-Year': 252, '3-Year': 252*3, '5-Year': 252*5}
     rolling_returns = {}
     
+    # Get the first column (usually the benchmark or first portfolio)
+    if isinstance(cumulative_df, pd.DataFrame):
+        first_col = cumulative_df.iloc[:, 0]
+    else:
+        first_col = cumulative_df
+    
     for name, days in periods.items():
-        if len(cumulative_df) > days:
+        if len(first_col) > days:
             years = days / 252
-            rolling_returns[name] = (cumulative_df.iloc[-1] / cumulative_df.iloc[-days-1])**(1/years) - 1
+            rolling_returns[name] = (first_col.iloc[-1] / first_col.iloc[-days-1])**(1/years) - 1
         else:
             rolling_returns[name] = np.nan
             
-    return pd.DataFrame.from_dict(rolling_returns, orient='index').map(lambda x: f"{x:.2%}" if not pd.isna(x) else "N/A")
+    return pd.DataFrame.from_dict(rolling_returns, orient='index', columns=['Return']).map(lambda x: f"{x:.2%}" if not pd.isna(x) else "N/A")
+
+
+# --- 6. Covariance Matrix Validation and Regularization ---
+
+def validate_covariance_matrix(cov_matrix: pd.DataFrame) -> None:
+    """
+    Validate that a covariance matrix is suitable for optimization.
+    
+    Checks:
+    - No NaN values
+    - Symmetric matrix
+    - Positive semi-definite (all eigenvalues >= 0)
+    
+    Parameters
+    ----------
+    cov_matrix : pd.DataFrame
+        Covariance matrix to validate
+        
+    Raises
+    ------
+    ValueError
+        If validation fails with diagnostic information
+    """
+    # Check for NaN values
+    if cov_matrix.isnull().any().any():
+        raise ValueError(
+            "Covariance matrix contains NaN values. "
+            f"Columns with NaN: {cov_matrix.columns[cov_matrix.isnull().any()].tolist()}"
+        )
+    
+    # Check symmetry
+    if not np.allclose(cov_matrix, cov_matrix.T, atol=1e-8):
+        max_asymmetry = np.abs(cov_matrix - cov_matrix.T).max().max()
+        raise ValueError(
+            f"Covariance matrix is not symmetric. "
+            f"Maximum asymmetry: {max_asymmetry:.2e}"
+        )
+    
+    # Check positive semi-definiteness
+    eigenvalues = np.linalg.eigvalsh(cov_matrix.values)
+    min_eigenvalue = np.min(eigenvalues)
+    
+    if min_eigenvalue < -1e-8:  # Allow small numerical errors
+        raise ValueError(
+            f"Covariance matrix is not positive semi-definite. "
+            f"Minimum eigenvalue: {min_eigenvalue:.2e}. "
+            f"Consider using regularization."
+        )
+    
+    logger.debug("Covariance matrix validation passed")
+
+
+def regularize_covariance(cov_matrix: pd.DataFrame, threshold: float = 1e10) -> pd.DataFrame:
+    """
+    Regularize a covariance matrix to improve numerical stability.
+    
+    If the condition number exceeds the threshold, adds a small diagonal term
+    to ensure positive definiteness and reduce condition number.
+    
+    Parameters
+    ----------
+    cov_matrix : pd.DataFrame
+        Covariance matrix to regularize
+    threshold : float
+        Condition number threshold above which regularization is applied
+        
+    Returns
+    -------
+    pd.DataFrame
+        Regularized covariance matrix
+    """
+    cov_array = cov_matrix.values
+    
+    # Compute condition number
+    eigenvalues = np.linalg.eigvalsh(cov_array)
+    eigenvalues = eigenvalues[eigenvalues > 0]  # Filter out near-zero eigenvalues
+    
+    if len(eigenvalues) == 0:
+        raise ValueError("Covariance matrix has no positive eigenvalues")
+    
+    condition_number = np.max(eigenvalues) / np.min(eigenvalues)
+    
+    if condition_number > threshold:
+        logger.info(
+            f"Covariance matrix has high condition number ({condition_number:.2e}). "
+            f"Applying regularization..."
+        )
+        
+        # Add small diagonal term (1e-8 times trace)
+        trace = np.trace(cov_array)
+        regularization_term = 1e-8 * trace / len(cov_array)
+        cov_array_reg = cov_array + np.eye(len(cov_array)) * regularization_term
+        
+        # Verify regularization worked
+        eigenvalues_reg = np.linalg.eigvalsh(cov_array_reg)
+        eigenvalues_reg = eigenvalues_reg[eigenvalues_reg > 0]
+        condition_number_reg = np.max(eigenvalues_reg) / np.min(eigenvalues_reg)
+        
+        logger.info(f"Regularized condition number: {condition_number_reg:.2e}")
+        
+        return pd.DataFrame(cov_array_reg, index=cov_matrix.index, columns=cov_matrix.columns)
+    
+    return cov_matrix

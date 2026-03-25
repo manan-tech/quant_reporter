@@ -17,6 +17,11 @@ This package is designed to be used in two ways:
     * Maximum Sharpe Ratio (Unconstrained)
     * Maximum Sharpe (Asset-Capped, e.g., max 40% per asset)
     * **Sector-Based Constraints** (e.g., max 50% in 'Tech', min 5% in 'Commodities')
+* **Advanced Optimization Methods** ⭐ NEW:
+    * **Risk Parity:** Equalizes risk contribution across assets (not capital allocation)
+    * **Hierarchical Risk Parity (HRP):** Uses machine learning clustering for robust diversification
+    * **Minimum Correlation:** Minimizes average pairwise correlation for maximum diversification benefit
+    * **Maximum Diversification:** Maximizes the diversification ratio (weighted volatility / portfolio volatility)
 * **Walk-Forward Validation:** The gold standard of backtesting. It trains the optimizer on one period and validates its performance out-of-sample on a separate test period.
 * **Advanced Visualizations:** Generates a suite of interactive Plotly charts:
     * Efficient Frontier (with CML)
@@ -133,7 +138,56 @@ qr.create_combined_report(
 )
 ```
 
-### 4. create_monte_carlo_report (New!)
+### 4. Advanced Portfolio Optimization ⭐ NEW
+
+Compare 8 different portfolio strategies including 4 advanced optimization methods:
+
+```python
+import quant_reporter as qr
+
+# Your portfolio
+my_portfolio = {'AAPL': 0.25, 'MSFT': 0.25, 'GOOGL': 0.25, 'AMZN': 0.25}
+
+# Generate comprehensive optimization report
+qr.create_optimization_report(
+    portfolio_dict=my_portfolio,
+    benchmark_ticker='SPY',
+    start_date='2020-01-01',
+    end_date='2024-12-31',
+    filename='Advanced_Optimization_Report.html',
+    risk_free_rate=0.05
+)
+```
+
+**What's included in the report:**
+- **8 Portfolio Strategies:**
+  1. Equal Weight (Baseline)
+  2. Minimum Volatility (Traditional MPT)
+  3. Balanced (40% Cap)
+  4. Max Sharpe (Unconstrained MPT)
+  5. **Risk Parity** - Equal risk contribution
+  6. **HRP** - Hierarchical clustering
+  7. **Min Correlation** - Minimize pairwise correlation
+  8. **Max Diversification** - Maximize diversification ratio
+
+- **Comprehensive Comparisons:**
+  - Composition pie charts (by asset and sector)
+  - Risk contribution analysis
+  - Cumulative returns
+  - Drawdown analysis
+  - Rolling Sharpe ratio
+  - Monthly returns heatmap
+  - Efficient frontier with all strategies
+
+**When to use each optimizer:**
+- **Risk Parity:** When assets have different volatilities and you want balanced risk exposure
+- **HRP:** When correlation structures are unstable or you want robust out-of-sample performance
+- **Min Correlation:** During crisis periods when correlations spike
+- **Max Diversification:** For long-only portfolios seeking maximum risk reduction
+
+See `examples/example_advanced_optimization.py` for a complete working example.
+
+### 5. create_monte_carlo_report
 
 Generates a dedicated Monte Carlo simulation report.
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "quant_reporter"
-version = "1.0.7"
+version = "1.1.0"
 authors = [
   { name="Manan Bansal", email="mananpbansal@gmail.com" },
 ]
@@ -30,7 +30,10 @@ dependencies = [
     "numpy",
     "yfinance",
     "plotly",
-    "scipy"
+    "scipy",
+    "scikit-learn>=1.0.0",
+    "statsmodels>=0.13.0",
+    "requests>=2.28.0"
 ]
 
 [project.urls]

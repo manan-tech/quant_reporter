@@ -1,2 +1,12 @@
 dist/*
 src/quant_reporter.egg-info/*
+src/quant_reporter/__pycache__/*
+test/__pycache__/*
+.pytest_cache/*
+.hypothesis/*
+.coverage
+.DS_Store
+.kiro/
+reports/*.html
+examples/*.html
+IMPLEMENTATION_PLAN.md
