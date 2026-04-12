@@ -16,9 +16,11 @@ def enable_logging(level=logging.INFO):
 # --- Core Utilities (for advanced use) ---
 from .data import get_data
 from .metrics import calculate_metrics
+from .report_context import build_context
 
 # --- Simple Report Generator ---
-from .analysis import create_full_report
+# Note: create_full_report is deprecated, use create_portfolio_report or combined_report
+from .portfolio_report import create_portfolio_report as create_full_report
 
 # --- Optimization Core (for advanced use) ---
 from .opt_core import (
@@ -96,11 +98,14 @@ from .black_litterman import (
 )
 
 # --- Full Report Generators ---
-from .optimization import create_optimization_report
-from .validation import create_validation_report
+from .portfolio_report import create_portfolio_report
+from .optimization_report import create_optimization_report
+from .validation_report import create_validation_report
 from .combined_report import create_combined_report
+from .factor_report import create_factor_report
+from .monte_carlo_report import create_monte_carlo_report
 
 # --- Rebalancing ---
 from .rebalancing import simulate_rebalanced_portfolio
 
-__version__ = "1.1.1" 
+__version__ = "2.0.0" 
