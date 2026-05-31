@@ -60,6 +60,11 @@ class ReportContext:
     # Memoized analytics accessor (set in build_context)
     analytics: object = None
 
+    # Covariance treatment used for the optimization inputs (so downstream
+    # consumers like walk-forward validation can match it).
+    denoise_cov: bool = False
+    n_components: int = 3
+
 def _resolve_dates_and_rfr(train_start: str, train_end: str,
                            risk_free_rate: Union[float, str]):
     """Shared step 1+2: date resolution and risk-free-rate resolution."""
@@ -220,6 +225,8 @@ def _assemble_context(price_data_full: pd.DataFrame,
         mean_returns=mean_returns,
         cov_matrix=cov_matrix,
         log_returns=log_returns,
+        denoise_cov=denoise_cov,
+        n_components=n_components,
     )
     ctx.analytics = PortfolioAnalytics(ctx)
     return ctx
