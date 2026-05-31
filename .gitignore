@@ -1,12 +1,42 @@
-dist/*
-src/quant_reporter.egg-info/*
-src/quant_reporter/__pycache__/*
-test/__pycache__/*
-.pytest_cache/*
-.hypothesis/*
+# Byte-compiled / optimized / cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Packaging / build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Test & coverage caches
+.pytest_cache/
+.hypothesis/
 .coverage
-.DS_Store
+.coverage.*
+htmlcov/
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
 .kiro/
+
+# OS cruft
+.DS_Store
+
+# Generated report output
 reports/*.html
 examples/*.html
+
+# Graphify knowledge graph (regenerated locally)
+graphify-out/
+
+# Misc local planning docs
 IMPLEMENTATION_PLAN.md
