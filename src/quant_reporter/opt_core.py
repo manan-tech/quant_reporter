@@ -8,6 +8,8 @@ logger = logging.getLogger(__name__)
 from .data import get_data
 from .metrics import calculate_metrics
 
+DEFAULT_RISK_FREE_RATE = 0.02
+
 # --- 1. Core Portfolio Math ---
 
 def get_portfolio_stats(weights, mean_returns, cov_matrix, risk_free_rate=0.02):
@@ -211,8 +213,9 @@ def get_risk_free_rate():
         logger.info("Using live risk-free rate: %.2f%%", latest_rate * 100)
         return latest_rate
     except Exception as e:
-        logger.warning("Could not fetch live risk-free rate. Defaulting to 0.06. Error: %s", e)
-        return 0.06
+        logger.warning("Could not fetch live risk-free rate. Defaulting to %.2f. Error: %s",
+                       DEFAULT_RISK_FREE_RATE, e)
+        return DEFAULT_RISK_FREE_RATE
 
 def calculate_rolling_returns(cumulative_df):
     """

@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Union
 from datetime import datetime, timedelta
 
 from .data import get_data
-from .opt_core import get_risk_free_rate, get_optimization_inputs
+from .opt_core import get_risk_free_rate, get_optimization_inputs, DEFAULT_RISK_FREE_RATE
 from .analytics import PortfolioAnalytics
 
 logger = logging.getLogger(__name__)
@@ -91,7 +91,7 @@ def build_context(portfolio_dict: Dict[str, float], benchmark_ticker: str,
     elif isinstance(risk_free_rate, (int, float)):
         rfr = float(risk_free_rate)
     else:
-        rfr = 0.02
+        rfr = DEFAULT_RISK_FREE_RATE
 
     # 3. Handle Dictionary Ticker Mapping
     tickers = list(portfolio_dict.keys())
