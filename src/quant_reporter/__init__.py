@@ -78,16 +78,17 @@ from .opt_plotting import (
     plot_portfolio_vs_constituents
 )
 
-# --- Monte Carlo Simulations ---
+# --- Monte Carlo Simulations (low-level helpers) ---
 from .monte_carlo import (
     simulate_portfolio_paths,
     calculate_simulation_metrics,
     calculate_success_probabilities,
     plot_simulation_paths,
     plot_simulation_distribution,
-    plot_probability_curve,
-    create_monte_carlo_report
+    plot_probability_curve
 )
+# ctx-based Monte Carlo report (supersedes the old monte_carlo.create_monte_carlo_report)
+from .monte_carlo_report import create_monte_carlo_report
 
 # --- Black-Litterman ---
 from .black_litterman import (
