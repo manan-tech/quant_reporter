@@ -3,6 +3,21 @@
 All notable changes to `quant_reporter` are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [2.1.0] - Unreleased
+
+### Added
+- Analytics core (`analytics.py`): `portfolio_returns`/`ReturnsBundle`, `compute_metrics` (numeric)
+  + `format_metrics`, `compute_drawdown`/`DrawdownResult`, and the memoized `ctx.analytics` accessor —
+  the single source of truth for portfolio returns, growth, drawdown, and realized metrics.
+
+### Changed
+- Risk-free-rate fetch failure now falls back to **0.02** (was 0.06) via `DEFAULT_RISK_FREE_RATE`,
+  matching `build_context`'s default — one documented fallback.
+
+### Notes
+- Report modules still use the legacy `calculate_metrics`; migration to the new core (and its clean
+  break to numeric output) lands in SP0 Part B.
+
 ## [2.0.0]
 
 A rearchitecture of the reporting layer around a shared `ReportContext`, rebuilt on top
