@@ -39,3 +39,32 @@ def test_portfolio_returns_rebalance_differs_from_buy_and_hold(synthetic_prices)
     assert mo.weights_history is not None
     assert not np.isclose(mo.terminal, bh.terminal)
     assert list(mo.daily.columns) == ["Portfolio", "Benchmark"]
+
+
+from quant_reporter.analytics import compute_metrics, format_metrics
+
+REALIZED_KEYS = {
+    "Realized CAGR", "Realized Volatility", "Realized Sharpe", "Realized Sortino",
+    "Calmar", "Max Drawdown", "Beta (CAPM)", "Alpha (CAPM, ann.)",
+    "Skew", "Kurtosis", "VaR (95%, daily)", "CVaR (95%, daily)",
+}
+
+
+def test_compute_metrics_numeric_and_consistent(synthetic_prices):
+    w = {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}
+    rb = portfolio_returns(synthetic_prices, w, "BMK")
+    m = compute_metrics(rb, risk_free_rate=0.02)
+    assert set(m) == REALIZED_KEYS
+    assert all(isinstance(v, float) for v in m.values())
+    # internal consistency: realized vol == std(daily portfolio) * sqrt(252)
+    assert m["Realized Volatility"] == pytest.approx(rb.daily["Portfolio"].std() * np.sqrt(252))
+    # max drawdown comes from the SAME growth series
+    from quant_reporter.metrics import compute_drawdown
+    assert m["Max Drawdown"] == pytest.approx(compute_drawdown(rb.growth["Portfolio"]).max_dd)
+
+
+def test_format_metrics_strings():
+    m = {"Realized Volatility": 0.1234, "Realized Sharpe": 1.2}
+    f = format_metrics(m)
+    assert f["Realized Volatility"] == "12.34%"
+    assert f["Realized Sharpe"] == "1.20"
