@@ -94,3 +94,35 @@ def compute_metrics(bundle, risk_free_rate):
 def format_metrics(metrics):
     """Display formatter: % for rate-like keys, 2dp otherwise."""
     return {k: (f"{v:.2%}" if k in _PCT_KEYS else f"{v:.2f}") for k, v in metrics.items()}
+
+
+class PortfolioAnalytics:
+    """Lazy, memoized accessor attached as ctx.analytics. Delegates to the pure
+    functions and caches, so every report section reads identical, compute-once values."""
+
+    def __init__(self, ctx):
+        self._ctx = ctx
+
+    @cached_property
+    def returns(self) -> ReturnsBundle:
+        c = self._ctx
+        return portfolio_returns(
+            c.price_data_full, c.user_friendly_weights, c.friendly_benchmark,
+            getattr(c, "rebalance_freq", None),
+        )
+
+    @cached_property
+    def drawdown(self):
+        return compute_drawdown(self.returns.growth["Portfolio"])
+
+    @cached_property
+    def metrics(self):
+        return compute_metrics(self.returns, self._ctx.risk_free_rate)
+
+    @cached_property
+    def model_stats(self):
+        from .opt_core import get_portfolio_stats
+        c = self._ctx
+        w = pd.Series(c.user_friendly_weights).reindex(c.mean_returns.index).fillna(0.0).values
+        ret, vol, sharpe = get_portfolio_stats(w, c.mean_returns, c.cov_matrix, c.risk_free_rate)
+        return {"Expected Return": float(ret), "Expected Volatility": float(vol), "Expected Sharpe": float(sharpe)}

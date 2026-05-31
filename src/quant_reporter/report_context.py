@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 
 from .data import get_data
 from .opt_core import get_risk_free_rate, get_optimization_inputs
+from .analytics import PortfolioAnalytics
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,9 @@ class ReportContext:
     mean_returns: pd.Series
     cov_matrix: pd.DataFrame
     log_returns: pd.DataFrame
+
+    # Memoized analytics accessor (set in build_context)
+    analytics: object = None
 
 def build_context(portfolio_dict: Dict[str, float], benchmark_ticker: str,
                   train_start: str, train_end: str,
@@ -160,7 +164,7 @@ def build_context(portfolio_dict: Dict[str, float], benchmark_ticker: str,
         asset_data_train, denoise_cov=denoise_cov, n_components=n_components
     )
     
-    return ReportContext(
+    ctx = ReportContext(
         full_start=full_start,
         full_end=full_end,
         train_start=train_start,
@@ -191,3 +195,5 @@ def build_context(portfolio_dict: Dict[str, float], benchmark_ticker: str,
         cov_matrix=cov_matrix,
         log_returns=log_returns
     )
+    ctx.analytics = PortfolioAnalytics(ctx)
+    return ctx
