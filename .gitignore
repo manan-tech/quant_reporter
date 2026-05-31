@@ -31,8 +31,7 @@ htmlcov/
 # OS cruft
 .DS_Store
 
-# Generated report output
-reports/*.html
+# Generated report output (regenerable via the examples/*.py scripts)
 examples/*.html
 
 # Graphify knowledge graph (regenerated locally)
