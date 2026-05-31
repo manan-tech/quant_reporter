@@ -1,0 +1,54 @@
+# Changelog
+
+All notable changes to `quant_reporter` are documented here. This project follows
+[Semantic Versioning](https://semver.org/).
+
+## [2.0.0]
+
+A rearchitecture of the reporting layer around a shared `ReportContext`, rebuilt on top
+of the stable 1.1.1 release. **Breaking:** every report generator now takes the portfolio,
+benchmark, and training window and fetches data itself (see "Migrating from 1.x" in the
+README).
+
+### Added
+- `ReportContext` + `build_context()` — fetch price data once, derive train/test splits
+  and optimization inputs, and share them across reports.
+- Dedicated ctx-based generators: `create_portfolio_report`, `create_optimization_report`,
+  `create_validation_report`, `create_factor_report`, `create_monte_carlo_report`, and a
+  rewritten `create_combined_report` orchestrating all five with graceful per-module
+  degradation.
+- Factor report: Fama-French 5/3-factor regression, rolling exposures, style drift, macro
+  regimes, and Brinson-Fachler attribution.
+- Monte Carlo report: time-to-target and day-1 stress scenarios alongside GBM paths.
+- Test suite for the new API and the bug fixes; a `[test]` optional-dependency extra.
+
+### Changed
+- `compute_brinson_attribution` now takes a single `asset_returns` matrix plus
+  portfolio/benchmark weight dicts and a `sector_map` (was: separate return series).
+- `create_full_report` is retained as an alias for `create_portfolio_report`.
+- Require Python ≥ 3.9 and `pandas >= 2.2` (for the `'ME'`/`'YE'` resample aliases).
+- README rewritten for the 2.0 API; example scripts consolidated onto the new API.
+
+### Fixed
+- **HRP optimizer** computed `sqrt((1 - rho)/2)` where floating-point error could make
+  `rho > 1`, yielding NaN distances and corrupting the clustering. Correlations are now
+  clamped to `[-1, 1]`.
+- **Factor models** called `pd.infer_freq` unconditionally, raising `TypeError` on a
+  non-`DatetimeIndex`. It is now guarded and falls back to daily annualization.
+- **`get_risk_free_rate`** silently returned the 0.06 default on modern yfinance because
+  `tbill['Close']` is a multi-indexed DataFrame; it now reads the live rate correctly.
+- **Validation overfitting score** looked up the wrong metric keys, so the Overfitting
+  Score and Strategy Degradation were always 0. They now compute correctly.
+- **Factor report** double-annualized alpha in the regression summary (the value from
+  `run_factor_regression` is already annualized).
+- Duplicate `create_monte_carlo_report` definitions no longer collide: the public symbol
+  is the ctx-based generator.
+- Repository hygiene: removed committed `__pycache__`/`.DS_Store` artifacts and hardened
+  `.gitignore`.
+
+## [1.1.1]
+
+Last release of the 1.x line: portfolio metrics, MPT optimizers (min-vol, max-Sharpe,
+sector-constrained), advanced optimizers (Risk Parity, HRP, Min-Correlation,
+Max-Diversification), Black-Litterman, Monte Carlo simulation, walk-forward validation,
+and Plotly HTML reports.
