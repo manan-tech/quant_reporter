@@ -68,3 +68,15 @@ def test_format_metrics_strings():
     f = format_metrics(m)
     assert f["Realized Volatility"] == "12.34%"
     assert f["Realized Sharpe"] == "1.20"
+
+
+def test_compute_metrics_degenerate_short_series(synthetic_prices):
+    # A 2-row price slice yields a single daily-return row; std is undefined (NaN).
+    # The metric guards must short-circuit (no scipy linregress on one point) and
+    # return 0.0 for Sharpe/Beta/Alpha rather than NaN.
+    w = {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}
+    rb = portfolio_returns(synthetic_prices.iloc[:2], w, "BMK")
+    m = compute_metrics(rb, risk_free_rate=0.02)
+    assert m["Realized Sharpe"] == 0.0
+    assert m["Beta (CAPM)"] == 0.0
+    assert m["Alpha (CAPM, ann.)"] == 0.0

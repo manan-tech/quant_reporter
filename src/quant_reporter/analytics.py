@@ -28,6 +28,9 @@ def portfolio_returns(price_data, weights_dict, benchmark_col, rebalance_freq=No
 
     Routes through simulate_rebalanced_portfolio for ALL frequencies;
     rebalance_freq=None is buy-and-hold (matches the closed-form get_portfolio_price).
+
+    weights_dict is treated as proportions of a unit portfolio (assumed to sum to 1);
+    the buy-and-hold/closed-form equivalence holds for normalized weights.
     """
     asset_cols = [c for c in weights_dict if c in price_data.columns]
     asset_prices = price_data[asset_cols]
@@ -59,7 +62,8 @@ def compute_metrics(bundle, risk_free_rate):
 
     vol = float(pr.std() * ann)
     excess = pr - risk_free_rate / 252
-    sharpe = float((excess.mean() * 252) / (excess.std() * ann)) if excess.std() else 0.0
+    ex_std = excess.std()
+    sharpe = float((excess.mean() * 252) / (ex_std * ann)) if (np.isfinite(ex_std) and ex_std > 0) else 0.0
     sortino = float(calculate_sortino_ratio(pr, risk_free_rate))
     max_dd = compute_drawdown(growth).max_dd
 
@@ -67,7 +71,7 @@ def compute_metrics(bundle, risk_free_rate):
     cagr = float(growth.iloc[-1] ** (1 / n_years) - 1)
     calmar = float(cagr / abs(max_dd)) if max_dd else float("nan")
 
-    if br.std() == 0 or pr.std() == 0:
+    if not (np.isfinite(br.std()) and np.isfinite(pr.std())) or br.std() == 0 or pr.std() == 0:
         beta, alpha = 0.0, 0.0
     else:
         lr = stats.linregress(br, pr)
