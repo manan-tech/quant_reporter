@@ -172,7 +172,11 @@ def optimize_hrp(
     
     # Step 2: Compute distance matrix
     # Distance metric: d_ij = sqrt((1 - rho_ij) / 2)
-    dist_matrix = np.sqrt((1 - corr_matrix) / 2)
+    # Clamp correlations to [-1, 1] first: floating-point error in the cov->corr
+    # conversion can push rho slightly past 1, making (1 - rho)/2 negative and
+    # producing NaN distances (and "invalid value encountered in sqrt" warnings).
+    corr_matrix = np.clip(corr_matrix, -1.0, 1.0)
+    dist_matrix = np.sqrt(np.clip((1 - corr_matrix) / 2, 0.0, None))
     
     # Convert to condensed distance matrix for scipy
     dist_condensed = squareform(dist_matrix, checks=False)
