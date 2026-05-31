@@ -6,7 +6,6 @@ import yfinance as yf
 
 logger = logging.getLogger(__name__)
 from .data import get_data
-from .metrics import calculate_metrics
 
 DEFAULT_RISK_FREE_RATE = 0.02
 

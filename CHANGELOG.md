@@ -11,6 +11,7 @@ All notable changes to `quant_reporter` are documented here. This project follow
   the single source of truth for portfolio returns, growth, drawdown, and realized metrics.
 
 ### Changed
+- **Breaking:** removed the string-returning `calculate_metrics`; use `compute_metrics` (numeric) + `format_metrics` for display.
 - Risk-free-rate fetch failure now falls back to **0.02** (was 0.06) via `DEFAULT_RISK_FREE_RATE`,
   matching `build_context`'s default — one documented fallback.
 

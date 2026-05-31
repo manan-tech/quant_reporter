@@ -6,8 +6,8 @@ import traceback
 logger = logging.getLogger(__name__)
 
 from .report_context import ReportContext, build_context
-from .metrics import calculate_metrics, compute_drawdown
-from .analytics import format_metrics
+from .metrics import compute_drawdown
+from .analytics import ReturnsBundle, compute_metrics, format_metrics
 from .html_builder import generate_html_report
 
 from .opt_core import (
@@ -46,6 +46,12 @@ from .black_litterman import (
     calculate_implied_equilibrium_returns,
     calculate_black_litterman_posterior
 )
+
+def _bundle_from_growth(strategy_growth, benchmark_growth):
+    """Build a ReturnsBundle from two Growth-of-$1 series (portfolio and benchmark)."""
+    growth = pd.concat({"Portfolio": strategy_growth, "Benchmark": benchmark_growth}, axis=1).dropna()
+    return ReturnsBundle(daily=growth.pct_change().dropna(), growth=growth, weights_history=None)
+
 
 def calculate_transition_costs(current_weights, target_weights_dict, transaction_cost_bps=10):
     """
@@ -229,14 +235,15 @@ def compute_optimization_analysis(ctx: ReportContext):
 
     for name, w_dict in weights_collection.items():
         eval_data[name] = get_portfolio_price(ctx.price_data_train[ctx.friendly_tickers], w_dict)
-        # Compute per-strategy metrics; plot_data is consumed below (not discarded)
-        strategy_metrics, strategy_plot_data = calculate_metrics(eval_data, name, ctx.friendly_benchmark, ctx.risk_free_rate)
-        # Store for pie charts and rich info
+        # Compute per-strategy metrics via the numeric analytics core
+        bundle = _bundle_from_growth(eval_data[name], eval_data[ctx.friendly_benchmark])
+        m = compute_metrics(bundle, ctx.risk_free_rate)
+        # Store for pie charts and rich info; metrics must be formatted strings for HTML display
         aligned_arr = np.array([w_dict.get(t, 0) for t in ctx.friendly_tickers])
         optimal_portfolios[name] = {
             "weights_arr": aligned_arr,
             "weights_dict": w_dict,
-            "metrics": strategy_metrics,
+            "metrics": format_metrics(m),
             "color": "rgb(55, 128, 191)" # Default color
         }
         if name != "User Portfolio":
