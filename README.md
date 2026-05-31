@@ -187,6 +187,51 @@ qr.create_optimization_report(
 
 See `examples/example_advanced_optimization.py` for a complete working example.
 
+### 5. Factor Models & Performance Attribution ⭐ NEW
+
+Analyze portfolio factor exposures using Fama-French models and decompose performance with Brinson attribution:
+
+```python
+import quant_reporter as qr
+import pandas as pd
+
+# Your portfolio returns (DatetimeIndex)
+portfolio_returns = pd.Series(...)
+
+# Generate factor analysis report
+qr.create_factor_report(
+    portfolio_returns=portfolio_returns,
+    portfolio_name="My Portfolio",
+    start_date='2023-01-01',
+    end_date='2023-12-31',
+    filename='factor_analysis_report.html'
+)
+```
+
+**What's included in the report:**
+- **Factor Regression Analysis:**
+  - Fama-French 3-factor model (Market, Size, Value)
+  - Factor loadings (betas) with statistical significance
+  - Annualized alpha and R-squared metrics
+  
+- **Factor Attribution:**
+  - Decomposition of returns by factor contribution
+  - Cumulative contribution chart over time
+  - Percentage breakdown of performance sources
+
+- **Brinson Performance Attribution** (optional):
+  - Allocation effect (sector weighting decisions)
+  - Selection effect (security selection within sectors)
+  - Interaction effect (combined allocation + selection)
+
+**Use cases:**
+- Understand WHY your portfolio performed the way it did
+- Identify factor exposures (e.g., small-cap tilt, value bias)
+- Separate skill (alpha) from systematic factor exposure
+- Compare active vs passive management styles
+
+See `examples/example_factor_report.py` for a complete working example.
+
 ### 5. create_monte_carlo_report
 
 Generates a dedicated Monte Carlo simulation report.
@@ -606,9 +651,57 @@ Every report automatically calculates and displays the following core metrics (A
 	•	plot_risk_contribution(...): Returns a Plotly Figure object.
 	•	(…and all other plot_ functions in plotting.py and opt_plotting.py)
 
+### ⭐ NEW: Factor Models & Performance Attribution
+
+**Fama-French Factor Analysis:**
+```python
+import quant_reporter as qr
+
+# 1. Fetch Fama-French factor data (Market, SMB, HML, Risk-Free)
+factors = qr.fetch_fama_french_factors(
+    dataset='F-F_Research_Data_Factors_daily',  # or monthly
+    start_date='2020-01-01'
+)
+
+# 2. Run factor regression to find your portfolio's factor exposures
+results = qr.run_factor_regression(portfolio_returns, factors)
+
+print(f"Alpha: {results['alpha']:.2%}")  # Annualized
+print(f"Market Beta: {results['betas']['Mkt-RF']:.3f}")
+print(f"R-squared: {results['r_squared']:.3f}")
+
+# 3. Decompose returns by factor contributions
+attribution = qr.compute_factor_attribution(
+    portfolio_returns,
+    factors,
+    results['betas'],
+    results['alpha']
+)
+```
+
+**Brinson Performance Attribution:**
+```python
+# Compare portfolio vs benchmark to decompose excess returns
+attribution = qr.compute_brinson_attribution(
+    portfolio_weights={'AAPL': 0.3, 'XOM': 0.4, 'JPM': 0.3},
+    portfolio_returns=portfolio_returns,
+    benchmark_weights={'AAPL': 0.2, 'XOM': 0.5, 'JPM': 0.2, 'GS': 0.1},
+    benchmark_returns=benchmark_returns,
+    sector_map={'AAPL': 'Tech', 'XOM': 'Energy', 'JPM': 'Finance', 'GS': 'Finance'}
+)
+
+# Attribution shows:
+# - Allocation Effect: Return from sector weighting decisions
+# - Selection Effect: Return from security selection within sectors
+# - Interaction Effect: Combined allocation + selection decisions
+```
+
+See `examples/example_factor_models.py` for a complete working example.
+
+---
+
 ### Future Development
 *   **Rebalancing Logic:** While visualization is supported, the core rebalancing function is still to be added properly (full transactional simulation, tax-loss harvesting, etc.).
-*   **Advanced Attribution:** Implement Brinson Performance Attribution (Allocation vs. Selection effects).
 *   **Rolling Validation:** True "walk-forward" optimization with periodic rebalancing (e.g., re-optimize every quarter).
 *   **AI-Driven Insights:** Integrate LLMs to generate textual commentary and risk warnings based on the report data.
 *   **More Simulation Models:** Add support for GARCH or Bootstrapping models in Monte Carlo.

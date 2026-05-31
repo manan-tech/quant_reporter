@@ -107,4 +107,4 @@ from .combined_report import create_combined_report
 # --- Rebalancing ---
 from .rebalancing import simulate_rebalanced_portfolio
 
-__version__ = "1.1.1" 
+__version__ = "2.0.0"
