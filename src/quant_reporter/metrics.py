@@ -1,12 +1,25 @@
 import pandas as pd
 import numpy as np
 from scipy import stats
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class DrawdownResult:
+    curve: pd.Series
+    max_dd: float
+
+
+def compute_drawdown(cumulative_returns):
+    """Underwater curve + scalar max drawdown from one cumulative (Growth-of-$1) series."""
+    peak = cumulative_returns.cummax()
+    curve = (cumulative_returns - peak) / peak
+    return DrawdownResult(curve=curve, max_dd=float(curve.min()))
+
 
 def calculate_max_drawdown(cumulative_returns):
-    """Calculates the max drawdown from a cumulative returns series."""
-    peak = cumulative_returns.cummax()
-    drawdown = (cumulative_returns - peak) / peak
-    return drawdown.min()
+    """Backward-compatible scalar max drawdown (delegates to compute_drawdown)."""
+    return compute_drawdown(cumulative_returns).max_dd
 
 def calculate_sortino_ratio(daily_returns, risk_free_rate=0.02):
     """Calculates the annualized Sortino Ratio."""
