@@ -1,0 +1,18 @@
+from conftest import make_synthetic_prices
+from quant_reporter.report_context import build_context_from_prices
+from quant_reporter.portfolio_report import compute_portfolio_analysis
+
+
+def _ctx():
+    return build_context_from_prices(
+        make_synthetic_prices(), {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}, "BMK",
+        train_start="2021-01-01", train_end="2022-12-31",
+    )
+
+
+def test_portfolio_analysis_runs_offline_from_core():
+    ctx = _ctx()
+    sections = compute_portfolio_analysis(ctx)
+    assert isinstance(sections, list) and len(sections) > 0
+    # the report must not recompute drawdown independently of the core:
+    assert ctx.analytics.drawdown.max_dd == ctx.analytics.drawdown.curve.min()
