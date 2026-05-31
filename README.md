@@ -1,713 +1,256 @@
 # Quant Reporter
 
-A Python library for advanced quantitative portfolio analysis, optimization, and validation.
+A Python library for advanced quantitative portfolio analysis, optimization, validation, and reporting.
 
-`quant_reporter` moves beyond simple metrics by providing a suite of tools to analyze, optimize, and stress-test investment portfolios. It is built on `pandas`, `yfinance`, and `plotly` to create rich, interactive, and cross-browser compatible HTML reports.
+`quant_reporter` turns a plain `{ticker: weight}` portfolio into rich, interactive, multi-page HTML reports. It is built on `pandas`, `numpy`, `scipy`, `statsmodels`, `yfinance`, and `plotly`, and covers performance & risk analytics, modern portfolio optimization, Monte Carlo forecasting, walk-forward validation, and Fama-French / Brinson attribution.
 
-This package is designed to be used in two ways:
-1.  **As a Report Generator:** Use one of the two main functions (`create_full_report` or `create_combined_report`) to instantly generate a comprehensive, multi-page HTML report.
-2.  **As a Core Library:** Import individual functions (e.g., `get_optimization_inputs`, `plot_efficient_frontier`) to build your own custom analysis scripts or notebooks.
+> **2.0** introduces a unified `ReportContext` architecture: every report takes the same inputs — a portfolio, a benchmark, and a training window — fetches data **once**, and renders. This is a breaking change from 1.x (see [Migrating from 1.x](#migrating-from-1x)).
 
-## Key Features
+---
 
-* **Simple & Portfolio Analysis:** Analyze a single ticker or a complex, weighted portfolio.
-* **Rich Metrics:** Calculates 15+ key performance and risk metrics, including **Sharpe, Sortino, Calmar, VaR (Value at Risk), CVaR (Conditional VaR),** and **Alpha/Beta**.
-* **Modern Portfolio Theory (MPT):** Generates optimized portfolios based on:
-    * Minimum Volatility
-    * Maximum Sharpe Ratio (Unconstrained)
-    * Maximum Sharpe (Asset-Capped, e.g., max 40% per asset)
-    * **Sector-Based Constraints** (e.g., max 50% in 'Tech', min 5% in 'Commodities')
-* **Advanced Optimization Methods** ⭐ NEW:
-    * **Risk Parity:** Equalizes risk contribution across assets (not capital allocation)
-    * **Hierarchical Risk Parity (HRP):** Uses machine learning clustering for robust diversification
-    * **Minimum Correlation:** Minimizes average pairwise correlation for maximum diversification benefit
-    * **Maximum Diversification:** Maximizes the diversification ratio (weighted volatility / portfolio volatility)
-* **Walk-Forward Validation:** The gold standard of backtesting. It trains the optimizer on one period and validates its performance out-of-sample on a separate test period.
-* **Advanced Visualizations:** Generates a suite of interactive Plotly charts:
-    * Efficient Frontier (with CML)
-    * Asset Allocation Pie Charts
-    * Sector Allocation Pie Charts
-    * Asset-level Risk Contribution (Stacked Bar)
-    * Sector-level Risk Contribution (Stacked Bar)
-    * Rolling Sharpe Ratio
-    * Cumulative Returns & Drawdown Plots
-    * Correlation Heatmaps
-    * Monte Carlo Simulations:
-        * Future Projections: Simulate 1000+ potential future paths for your portfolio using Geometric Brownian Motion.
-        * Actual vs. Simulated: Overlay your portfolio's *actual* realized performance on top of the simulations for a powerful "reality check."
-        * Probability Analysis: Calculate the probability of your portfolio exceeding specific return thresholds (e.g., "65% chance of >10% return").
-* Flexible & Extensible: All core math and plotting functions can be imported and used individually.
+## Who it's for
+
+| Question a trader/PM asks | What the package answers |
+|---|---|
+| *Is my portfolio good, risk-adjusted?* | Portfolio report: Sharpe, Sortino, Calmar, max drawdown, VaR/CVaR, alpha/beta vs a benchmark |
+| *How should I weight these?* | Optimization report: efficient frontier, min-vol, max-Sharpe, sector caps/mins, Risk Parity, HRP, Min-Correlation, Max-Diversification |
+| *Am I just overfitting the past?* | Validation report: train/test out-of-sample split, overfitting score, walk-forward windows |
+| *What could happen next?* | Monte Carlo report: GBM path simulation, success probabilities, time-to-target, day-1 stress shocks |
+| *Was it skill or just market beta?* | Factor report: Fama-French regression (alpha vs factor exposure) + Brinson allocation/selection attribution |
+| *How do I fold in my own views?* | Black-Litterman: blend market equilibrium with absolute & relative views |
+
+The package is descriptive analytics on daily historical data — a decision-support and communication tool, not a cost-aware execution backtester. Monte Carlo assumes Geometric Brownian Motion (thin tails — it understates crash risk), and it depends on live `yfinance` data.
+
+---
 
 ## Installation
 
-### 1. From PyPI (Recommended)
-
 ```bash
-pip install quant-reporter
+pip install quant-reporter          # from PyPI
 ```
 
-### 2. For Development (Local Install)
+For local development (editable install + test tooling):
+
 ```bash
 git clone https://github.com/manan-tech/quant_reporter.git
 cd quant_reporter
-# Important: Use -e for editable mode so changes are reflected immediately
-pip install -e .
+pip install -e ".[test]"
 ```
 
-⸻
+Requires Python ≥ 3.9.
 
-## Quickstart: The Main Report Functions
+---
 
-This package provides two main report generators: a simple one and an advanced one.
+## Quick start
 
-### 1. create_full_report
+Every report shares the same call shape:
 
-Generates a simple performance report for a single asset or your user-defined portfolio.
 ```python
-import quant_reporter as qr
-import os
-from datetime import datetime, timedelta
-
-# Can be a single ticker or a portfolio dict
-my_assets = {'AAPL': 0.6, 'MSFT': 0.4}
-today = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
-desktop = os.path.join(os.path.expanduser('~'), 'Desktop')
-
-qr.create_full_report(
-    assets=my_assets,
-    benchmark_ticker='SPY',
-    start_date='2020-01-01',
-    end_date=today,
-    filename=os.path.join(desktop, 'My_Simple_Report.html')
-)
+create_<kind>_report(portfolio_dict, benchmark_ticker, train_start, train_end, filename=..., **options)
 ```
 
-### 2. create_combined_report (Recommended)
-
-This is the most powerful, professional-grade report. It performs a full walk-forward validation by:
-	1.	Analyzing your user portfolio over the full period.
-	2.	Training the optimizers on your train_start to train_end data.
-	3.	Testing those optimized portfolios on the out-of-sample data (train_end to today).
+- `portfolio_dict` — `{ticker: weight}` (weights need not sum to 1; they are used as given).
+- `benchmark_ticker` — e.g. `"SPY"`.
+- `train_start` / `train_end` — the in-sample window used to fit optimizers and metrics. The **out-of-sample** test window is derived automatically (`train_end + 1 day` … yesterday) and used by the validation report.
 
 ```python
 import quant_reporter as qr
-import os
-from datetime import datetime, timedelta
 
-my_portfolio = {'AAPL': 0.6, 'MSFT': 0.4}
-desktop = os.path.join(os.path.expanduser('~'), 'Desktop')
+portfolio = {"AAPL": 0.3, "MSFT": 0.3, "XOM": 0.2, "GLD": 0.2}
 
+# The flagship: one HTML covering all five analyses
 qr.create_combined_report(
-    portfolio_dict=my_portfolio,
-    benchmark_ticker='SPY',
-    train_start='2015-01-01',
-    train_end='2021-12-31',
-    filename=os.path.join(desktop, 'My_Combined_Report.html'),
-    risk_free_rate=0.065
+    portfolio_dict=portfolio,
+    benchmark_ticker="SPY",
+    train_start="2018-01-01",
+    train_end="2023-12-31",
+    filename="Combined_Report.html",
+    sector_map={"AAPL": "Tech", "MSFT": "Tech", "XOM": "Energy", "GLD": "Commodities"},
+    sector_caps={"Tech": 0.5, "Energy": 0.3, "Commodities": 0.3},
+    risk_free_rate="auto",   # fetches the live 13-week T-bill rate; or pass a float like 0.045
 )
 ```
 
-### 3. Black-Litterman Portfolio Analysis
+---
 
-The Black-Litterman model blends market equilibrium returns with your own investor views.
+## The report generators
+
+All six accept the common signature above; the options below are all keyword-only and optional.
+
+| Function | Focus |
+|---|---|
+| `create_portfolio_report` | Risk/return dashboard vs benchmark (also aliased as `create_full_report`) |
+| `create_optimization_report` | Optimizers, sector constraints, efficient frontier, Black-Litterman |
+| `create_validation_report` | In-sample vs out-of-sample, overfitting score, walk-forward |
+| `create_monte_carlo_report` | GBM forecasting, success probabilities, stress scenarios |
+| `create_factor_report` | Fama-French regression + Brinson attribution |
+| `create_combined_report` | All of the above in a single document |
 
 ```python
 import quant_reporter as qr
 
-# 1. Define your absolute views (Ticker: Expected Annual Return)
-bl_views = {
-    'NVDA': 0.25,  # You expect 25% return for NVDA
-    'PFE': -0.05   # You expect -5% return for PFE
-}
+portfolio = {"AAPL": 0.4, "MSFT": 0.35, "GLD": 0.25}
+common = dict(benchmark_ticker="SPY", train_start="2018-01-01", train_end="2023-12-31")
 
-# 2. Define confidence in those views (0.0=Uncertain to 1.0=Certain)
-bl_confidences = {
-    'NVDA': 0.9,
-    'PFE': 0.5
-}
-
-# 3. Generate the report (integrated into create_combined_report)
-qr.create_combined_report(
-    portfolio_dict={'AAPL': 0.5, 'MSFT': 0.5},
-    benchmark_ticker='SPY',
-    train_start='2015-01-01',
-    train_end='2023-12-31',
-    filename='Black_Litterman_Report.html',
-    bl_views=bl_views,
-    bl_view_confidences=bl_confidences
-)
+qr.create_portfolio_report(portfolio_dict=portfolio, filename="01_Portfolio.html", **common)
+qr.create_optimization_report(portfolio_dict=portfolio, filename="02_Optimization.html", **common)
+qr.create_monte_carlo_report(portfolio_dict=portfolio, filename="03_MonteCarlo.html",
+                             num_simulations=5000, **common)
+qr.create_validation_report(portfolio_dict=portfolio, filename="04_Validation.html", **common)
+qr.create_factor_report(portfolio_dict=portfolio, filename="05_Factor.html",
+                        sector_map={"AAPL": "Tech", "MSFT": "Tech", "GLD": "Commodities"},
+                        **common)
 ```
 
-### 4. Advanced Portfolio Optimization ⭐ NEW
+### Common options (keyword arguments)
 
-Compare 8 different portfolio strategies including 4 advanced optimization methods:
+| Option | Type | Meaning |
+|---|---|---|
+| `risk_free_rate` | `float` or `"auto"` | Annual risk-free rate. `"auto"` fetches the live 13-week T-bill (`^IRX`). Default `"auto"`. |
+| `display_names` | `dict` | Friendly labels, e.g. `{"AAPL": "Apple"}`. |
+| `sector_map` | `dict` | `{ticker: sector}` — enables sector constraints, sector charts, and Brinson attribution. |
+| `sector_caps` / `sector_mins` | `dict` | `{sector: max_weight}` / `{sector: min_weight}` for the optimizer. |
+| `bl_views` | `dict` | Absolute Black-Litterman views, e.g. `{"AAPL": 0.15}` ("AAPL returns 15% p.a."). |
+| `bl_view_confidences` | `dict` | Confidence (0–1) per absolute view. |
+| `bl_relative_views` | `list[tuple]` | Relative views as `(outperformer, underperformer, spread)`, e.g. `[("NVDA", "AAPL", 0.03)]`. |
+| `bl_relative_view_confidences` | `list[float]` | Confidence (0–1) per relative view. |
+| `denoise_cov` | `bool` | Eigenvalue-clip the covariance matrix before optimizing. |
+
+### Black-Litterman example
 
 ```python
-import quant_reporter as qr
-
-# Your portfolio
-my_portfolio = {'AAPL': 0.25, 'MSFT': 0.25, 'GOOGL': 0.25, 'AMZN': 0.25}
-
-# Generate comprehensive optimization report
 qr.create_optimization_report(
-    portfolio_dict=my_portfolio,
-    benchmark_ticker='SPY',
-    start_date='2020-01-01',
-    end_date='2024-12-31',
-    filename='Advanced_Optimization_Report.html',
-    risk_free_rate=0.05
+    portfolio_dict={"AAPL": 0.25, "NVDA": 0.25, "JPM": 0.25, "XOM": 0.25},
+    benchmark_ticker="SPY",
+    train_start="2019-01-01",
+    train_end="2023-12-31",
+    filename="BL_Optimization.html",
+    bl_views={"NVDA": 0.20},                       # absolute: NVDA returns 20% p.a.
+    bl_view_confidences={"NVDA": 0.6},
+    bl_relative_views=[("AAPL", "XOM", 0.05)],     # AAPL outperforms XOM by 5%
+    bl_relative_view_confidences=[0.5],
 )
 ```
-
-**What's included in the report:**
-- **8 Portfolio Strategies:**
-  1. Equal Weight (Baseline)
-  2. Minimum Volatility (Traditional MPT)
-  3. Balanced (40% Cap)
-  4. Max Sharpe (Unconstrained MPT)
-  5. **Risk Parity** - Equal risk contribution
-  6. **HRP** - Hierarchical clustering
-  7. **Min Correlation** - Minimize pairwise correlation
-  8. **Max Diversification** - Maximize diversification ratio
-
-- **Comprehensive Comparisons:**
-  - Composition pie charts (by asset and sector)
-  - Risk contribution analysis
-  - Cumulative returns
-  - Drawdown analysis
-  - Rolling Sharpe ratio
-  - Monthly returns heatmap
-  - Efficient frontier with all strategies
-
-**When to use each optimizer:**
-- **Risk Parity:** When assets have different volatilities and you want balanced risk exposure
-- **HRP:** When correlation structures are unstable or you want robust out-of-sample performance
-- **Min Correlation:** During crisis periods when correlations spike
-- **Max Diversification:** For long-only portfolios seeking maximum risk reduction
-
-See `examples/example_advanced_optimization.py` for a complete working example.
-
-### 5. Factor Models & Performance Attribution ⭐ NEW
-
-Analyze portfolio factor exposures using Fama-French models and decompose performance with Brinson attribution:
-
-```python
-import quant_reporter as qr
-import pandas as pd
-
-# Your portfolio returns (DatetimeIndex)
-portfolio_returns = pd.Series(...)
-
-# Generate factor analysis report
-qr.create_factor_report(
-    portfolio_returns=portfolio_returns,
-    portfolio_name="My Portfolio",
-    start_date='2023-01-01',
-    end_date='2023-12-31',
-    filename='factor_analysis_report.html'
-)
-```
-
-**What's included in the report:**
-- **Factor Regression Analysis:**
-  - Fama-French 3-factor model (Market, Size, Value)
-  - Factor loadings (betas) with statistical significance
-  - Annualized alpha and R-squared metrics
-  
-- **Factor Attribution:**
-  - Decomposition of returns by factor contribution
-  - Cumulative contribution chart over time
-  - Percentage breakdown of performance sources
-
-- **Brinson Performance Attribution** (optional):
-  - Allocation effect (sector weighting decisions)
-  - Selection effect (security selection within sectors)
-  - Interaction effect (combined allocation + selection)
-
-**Use cases:**
-- Understand WHY your portfolio performed the way it did
-- Identify factor exposures (e.g., small-cap tilt, value bias)
-- Separate skill (alpha) from systematic factor exposure
-- Compare active vs passive management styles
-
-See `examples/example_factor_report.py` for a complete working example.
-
-### 5. create_monte_carlo_report
-
-Generates a dedicated Monte Carlo simulation report.
-
-```python
-import quant_reporter as qr
-
-# ... define assets ...
-
-qr.create_monte_carlo_report(
-    weights={'AAPL': 0.6, 'MSFT': 0.4},
-    mean_returns=mean_returns, # from get_optimization_inputs
-    cov_matrix=cov_matrix,     # from get_optimization_inputs
-    num_simulations=1000,
-    time_horizon=252,
-    filename='Monte_Carlo_Report.html'
-)
-```
-
-⸻
-
-## Advanced Usage: As a Library
-
-You can import and use all the core functions individually to build custom analyses.
-
-Example: Get data and find a Min Vol portfolio
-
-```python
-import quant_reporter as qr
-import pandas as pd
-
-# 1. Define tickers and get data
-tickers = ['AAPL', 'MSFT', 'GOOG', 'GLD']
-data = qr.get_data(tickers, '2020-01-01', '2023-12-31')
-
-# 2. Get optimization inputs
-mean_returns, cov_matrix, log_returns = qr.get_optimization_inputs(data)
-
-# 3. Define constraints (e.g., must sum to 1, no shorting)
-num_assets = len(tickers)
-bounds = tuple((0, 1) for _ in range(num_assets))
-# 'build_constraints' creates the simple sum-to-one rule
-constraints = qr.build_constraints(num_assets, tickers) 
-
-# 4. Find the optimal weights
-min_vol_weights = qr.find_optimal_portfolio(
-    objective_func=qr.objective_min_variance,
-    mean_returns=mean_returns,
-    cov_matrix=cov_matrix,
-    bounds=bounds,
-    constraints=constraints,
-    risk_free_rate=0.05
-)
-
-weights_df = pd.Series(min_vol_weights, index=tickers, name="Weights")
-print("--- Minimum Volatility Weights ---")
-print(weights_df[weights_df > 0].map(lambda x: f"{x:.2%}"))
-
-# 5. Create and show a plot
-fig = qr.plot_correlation_heatmap(log_returns)
-# fig.show() # Uncomment to display
-```
-
-⸻
-
-Full Example: All Reports with Sector Constraints
-
-Here is a complete, copy-pasteable example using the complex US portfolio from our discussion. It runs both main reports and includes display names and sector constraints.
-
-```python
-import quant_reporter as qr
-import os
-import traceback
-from datetime import datetime, timedelta
-import pandas as pd
-import numpy as np
-import warnings
-warnings.filterwarnings('ignore')
-
-# --- 1. Define Your New Portfolio ---
-my_portfolio = {
-    # --- Technology ---
-    'AAPL': 0.05,   # Apple
-    'MSFT': 0.07,   # Microsoft
-    'NVDA': 0.02,   # Nvidia
-    'TSLA': 0.03,   # Tesla
-
-    # --- Pharma / Healthcare ---
-    'JNJ': 0.04,    # Johnson & Johnson
-    'PFE': 0.03,    # Pfizer
-
-    # --- Infrastructure / Industrials ---
-    'CAT': 0.03,    # Caterpillar
-    'VMC': 0.02,    # Vulcan Materials
-
-    # --- Defense / Aerospace ---
-    'LMT': 0.05,    # Lockheed Martin
-    'RTX': 0.04,    # Raytheon Technologies
-
-    # --- Banking / Financials ---
-    'JPM': 0.05,    # JPMorgan Chase
-    'HDB': 0.03,    # HDFC Bank (ADR)
-
-    # --- Energy / Utilities ---
-    'XOM': 0.04,    # Exxon Mobil
-    'NEE': 0.03,    # NextEra Energy
-
-    # --- Logistics / Transportation ---
-    'FDX': 0.04,    # FedEx
-    'UNP': 0.03,    # Union Pacific
-
-    # --- Consumer / Retail ---
-    'WMT': 0.04,    # Walmart
-    'PG': 0.03,     # Procter & Gamble
-
-    # --- Metals / Commodities ---
-    'GLD': 0.04,    # SPDR Gold Shares
-    'SLV': 0.03,    # iShares Silver Trust
-
-    # --- Broad Market ETFs ---
-    'DIA': 0.03,    # Dow Jones ETF
-    'VTI': 0.03,    # Total Market ETF
-
-    # --- Risk-Free / T-Bills ---
-    'BIL': 0.02     # 1–3 Month Treasury Bill ETF
-}
-
-# --- 2. Define Display Names ---
-display_names = {
-    'AAPL': 'Apple', 'MSFT': 'Microsoft', 'NVDA': 'Nvidia', 'TSLA': 'Tesla',
-    'JNJ': 'Johnson & Johnson', 'PFE': 'Pfizer', 'CAT': 'Caterpillar', 
-    'VMC': 'Vulcan Materials', 'LMT': 'Lockheed Martin', 'RTX': 'Raytheon', 'PLTR': 'Palantir',
-    'JPM': 'JPMorgan Chase', 'HDB': 'HDFC Bank (ADR)',
-    'XOM': 'Exxon Mobil', 'NEE': 'NextEra Energy', 'FDX': 'FedEx', 
-    'UNP': 'Union Pacific', 'WMT': 'Walmart', 'PG': 'Procter & Gamble',
-    'GLD': 'SPDR Gold ETF', 'SLV': 'iShares Silver ETF', 'DIA': 'Dow Jones ETF',
-    'VTI': 'Total Market ETF', 'BIL': '1–3 Month T-Bill ETF',
-    'SPY': 'S&P 500 ETF' # Benchmark
-}
-
-# --- 3. Define Sector Map & Caps (using original tickers) ---
-sector_map = {
-    'AAPL': 'Tech', 'MSFT': 'Tech', 'NVDA': 'Tech', 'TSLA': 'Tech',
-    'JNJ': 'Healthcare', 'PFE': 'Healthcare',
-    'CAT': 'Industrials', 'VMC': 'Industrials', 'LMT': 'Defence', 'RTX': 'Defence',
-    'FDX': 'Industrials', 'UNP': 'Industrials',
-    'JPM': 'Financials', 'HDB': 'Financials',
-    'XOM': 'Energy', 'NEE': 'Utilities',
-    'WMT': 'Consumer', 'PG': 'Consumer',
-    'GLD': 'Commodities', 'SLV': 'Commodities',
-    'DIA': 'Broad Market', 'VTI': 'Broad Market',
-    'BIL': 'Cash'
-}
-
-sector_caps = {
-    'Tech': 0.40,         # Max 40% in Technology
-    'Industrials': 0.30,
-    'Defence': 0.30,
-    'Healthcare': 0.20,
-    'Financials': 0.20,
-    'Energy': 0.15,
-    'Utilities': 0.15,
-    'Consumer': 0.20,
-    'Commodities': 0.10,
-    'Broad Market': 0.10,
-    'Cash': 0.10
-}
-
-sector_mins = {
-    'Tech': 0.05,         # At least 5% in Technology
-    'Healthcare': 0.01,   # At least 1%
-    'Industrials': 0.01,
-    'Defence': 0.01,
-    'Defense': 0.01,
-    'Financials': 0.01,
-    'Energy': 0.01,
-    'Utilities': 0.01,
-    'Logistics': 0.01,
-    'Consumer': 0.01,
-    'Commodities': 0.02,  # At least 2% in Commodities
-    'Broad Market': 0.01,
-    'Cash': 0.05          # At least 5% in Cash
-}
-
-# --- 4. Define Benchmark & Paths ---
-benchmark_ticker = 'SPY'
-desktop = os.path.join(os.path.expanduser('~'), 'Desktop')
-
-
-def run_full_reports():
-    """
-    Runs all three major report generators.
-    """
-    print("--- 1. RUNNING create_full_report ---")
-    report_path_full = os.path.join(desktop, 'Portfolio_Report.html')
-    
-    try:
-        qr.create_full_report(
-            assets=my_portfolio, 
-            benchmark_ticker=benchmark_ticker,
-            start_date='2010-01-01',
-            end_date=(datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d'),
-            filename=report_path_full,
-            display_names=display_names,
-            risk_free_rate=0.065
-        )
-        print(f"--- Full Report Generated: {report_path_full} ---")
-    except Exception as e:
-        print(f"Error in create_full_report: {e}")
-        traceback.print_exc()
-
-    print("\n--- 2. RUNNING create_optimization_report ---")
-    opt_report_path = os.path.join(desktop, 'Portfolio_Optimization_Report.html')
-    
-    try:
-        qr.create_optimization_report(
-            portfolio_dict=my_portfolio,
-            benchmark_ticker=benchmark_ticker,
-            start_date='2010-01-01',
-            end_date='2019-12-31',
-            risk_free_rate=0.065,
-            filename=opt_report_path,
-            display_names=display_names,
-            sector_map=sector_map,
-            sector_caps=sector_caps,
-        )
-        print(f"--- Optimization Report Generated: {opt_report_path} ---")
-    except Exception as e:
-        print(f"Error in create_optimization_report: {e}")
-        traceback.print_exc()
-
-    print("\n--- 3. RUNNING create_combined_report ---")
-    comb_report_path = os.path.join(desktop, 'Combined_Report.html')
-    
-    try:
-        qr.create_combined_report(
-            portfolio_dict=my_portfolio,
-            benchmark_ticker=benchmark_ticker,
-            train_start='2010-01-01',
-            train_end='2023-12-31',
-            risk_free_rate=0.065,
-            filename=comb_report_path,
-            display_names=display_names,
-            sector_map=sector_map,
-            sector_caps=sector_caps,
-            sector_mins=sector_mins
-        )
-        print(f"--- Combined Report Generated: {comb_report_path} ---")
-    except Exception as e:
-        print(f"Error in create_combined_report: {e}")
-        traceback.print_exc()
-
-    print("\n--- 4. RUNNING create_monte_carlo_report ---")
-    mc_report_path = os.path.join(desktop, 'Monte_Carlo_Report.html')
-    
-    try:
-        # 1. Fetch data for simulation inputs
-        # We use a recent history (e.g. last 3 years) to estimate stats
-        sim_start = '2020-01-01'
-        sim_end = '2023-12-31'
-        tickers = list(my_portfolio.keys())
-        data_mc = qr.get_data(tickers, sim_start, sim_end)
-        
-        # 2. Get Mean Returns & Covariance Matrix
-        mean_returns, cov_matrix, _ = qr.get_optimization_inputs(data_mc)
-        
-        # 3. Align weights with the sorted columns from yfinance
-        sorted_tickers = sorted(tickers)
-        weights_list = [my_portfolio[t] for t in sorted_tickers]
-        
-        qr.create_monte_carlo_report(
-            weights=weights_list,
-            mean_returns=mean_returns,
-            cov_matrix=cov_matrix,
-            num_simulations=1000,
-            time_horizon=252, # 1 Year
-            filename=mc_report_path
-        )
-        print(f"--- Monte Carlo Report Generated: {mc_report_path} ---")
-    except Exception as e:
-        print(f"Error in create_monte_carlo_report: {e}")
-        traceback.print_exc()
-
-def test_individual_functions():
-    """
-    Demonstrates using the package as a library.
-    """
-    print("\n--- 4. TESTING INDIVIDUAL LIBRARY FUNCTIONS ---")
-    
-    try:
-        tickers = list(my_portfolio.keys())
-        friendly_tickers = [display_names.get(t, t) for t in tickers]
-        
-        # --- Test get_data ---
-        print("\nTesting get_data...")
-        data = qr.get_data(tickers, '2022-01-01', '2022-12-31')
-        print(data.tail(3))
-        
-        # --- Test calculate_metrics ---
-        print("\nTesting calculate_metrics...")
-        data_with_bench = qr.get_data(tickers + [benchmark_ticker], '2022-01-01', '2022-12-31')
-        data_with_bench.rename(columns=display_names, inplace=True)
-        
-        metrics, plot_data = qr.calculate_metrics(
-            data_with_bench, 
-            asset_col='Apple',
-            benchmark_col='S&P 500 ETF',
-            risk_free_rate=0.065
-        )
-        print(f"CAGR (Apple): {metrics['CAGR (Asset)']}")
-        print(f"Beta (Apple): {metrics['Beta (vs Benchmark)']}")
-        
-        # --- Test individual plotting function ---
-        print("\nTesting individual plot function (plot_correlation_heatmap)...")
-        # Get inputs using *friendly_tickers*
-        mean_returns, cov_matrix, log_returns = qr.get_optimization_inputs(data_with_bench[friendly_tickers])
-        fig = qr.plot_correlation_heatmap(log_returns)
-
-        print("Plotly figure object created successfully.")
-
-        print("\n--- Individual tests complete ---")
-        
-    except Exception as e:
-        print(f"Error during individual tests: {e}")
-        traceback.print_exc()
-
-# --- Run the tests ---
-if __name__ == "__main__":
-    run_full_reports()
-    test_individual_functions()
-```
-
-## Detailed Report Documentation
-
-Quant Reporter offers four primary report types, each serving a different stage of the investment process.
-
-### 📊 1. Full Portfolio Report (`create_full_report`)
-*   **Purpose:** Simple performance audit for a fixed asset mix.
-*   **Best for:** Client reporting, quarterly reviews, and tracking performance against a standard benchmark (e.g., SPY).
-*   **Key Sections:**
-    *   **Cumulative Returns:** Growth of $1 vs. benchmark.
-    *   **Regression Analysis:** Scatter plot with Alpha (intercept) and Beta (slope) to identify market sensitivity.
-    *   **Rolling Returns:** Summary table of 1Y, 3Y, and 5Y rolling performance.
-
-### 🧪 2. Optimization Report (`create_optimization_report`)
-*   **Purpose:** Forward-looking asset allocation based on historical risk/reward.
-*   **Best for:** Rebalancing, initial portfolio construction, and exploring the Efficient Frontier.
-*   **Key Sections:**
-    *   **Efficient Frontier:** Standard MPT curve showing the risk/return tradeoff.
-    *   **Strategy Comparison:** Composition mix of Min Vol, Max Sharpe, and Equal Weight strategies.
-    *   **Risk Contribution:** Decomposition of portfolio volatility by asset and sector.
-    *   **Correlation Heatmap:** Visualizes diversification benefits (or lack thereof).
-
-### 🏆 3. Combined Report (`create_combined_report`)
-*   **Purpose:** The flagship "Professional Grade" analysis. Integrates optimization with out-of-sample validation.
-*   **Best for:** Stress testing strategies, identifying "overfitting" in backtests, and analyzing rebalancing impact.
-*   **Exclusive Features:**
-    *   **Walk-Forward Validation:** Distinct Training and Testing periods to simulate real-world forward performance.
-    *   **Weight Evolution Plot:** New area chart showing how weights drift due to price changes and reset during rebalancing.
-    *   **Black-Litterman Integration:** Blends market equilibrium with investor views (absolute or relative).
-
-### 🎲 4. Monte Carlo Report (`create_monte_carlo_report`)
-*   **Purpose:** Probabilistic risk assessment and goal planning.
-*   **Best for:** Retiremet planning and quantifying "Worst Case" scenarios.
-*   **Key Sections:**
-    *   **Future Paths:** 1000 simulated trajectories for the next year.
-    *   **Distribution of Returns:** Histogram of final outcomes (Log-Normal).
-    *   **Probability Curve:** The "Goal Likelihood" chart (e.g., "90% chance of remaining above -5% drawdown").
 
 ---
 
-## Performance & Risk Metrics
+## Library (advanced) usage
 
-Every report automatically calculates and displays the following core metrics (Annualized where applicable):
+Beyond the one-call reports, the building blocks are importable for notebooks and custom scripts.
 
-| Metric | Category | Description |
-| :--- | :--- | :--- |
-| **CAGR** | Performance | Compound Annual Growth Rate over the period. |
-| **Vol (Ann)** | Risk | Annualized Standard Deviation of daily returns. |
-| **Sharpe Ratio** | Risk-Adj | Excess return per unit of volatility (uses T-Bill benchmark). |
-| **Sortino Ratio** | Risk-Adj | Excess return per unit of *downside* volatility. |
-| **Max Drawdown** | Risk | Peak-to-trough decline (the "pain" metric). |
-| **Calmar Ratio** | Risk-Adj | CAGR / Max Drawdown (efficiency of recovery). |
-| **Value at Risk (VaR)** | Risk | 95% confidence level daily loss potential. |
-| **Conditional VaR (CVaR)** | Risk | Expected loss *if* the VaR threshold is breached. |
-| **Alpha** | Benchmark | Excess return independent of the market. |
-| **Beta** | Benchmark | Sensitivity to market moves (Beta > 1 is aggressive). |
-| **R-Squared** | Benchmark | Percentage of returns explained by the benchmark. |
+### Build a context once, reuse it
 
----
+```python
+from quant_reporter import build_context
+from quant_reporter.optimization_report import compute_optimization_analysis
 
-## API & Function Reference
+ctx = build_context({"AAPL": 0.5, "MSFT": 0.5}, "SPY", "2018-01-01", "2023-12-31")
+# ctx carries price_data_full/train/test, mean_returns, cov_matrix, log_returns, ...
+sections = compute_optimization_analysis(ctx)
+```
 
-### Main Report Functions
-	•	create_full_report(assets, benchmark_ticker, start_date, end_date, ...)
-	•	create_combined_report(portfolio_dict, benchmark_ticker, train_start, train_end, ...)
+### Optimizers
 
-### Key Parameters:
-	•	assets (dict or str): Either a portfolio dictionary (e.g., {'AAPL': 0.5}) or a single ticker string (e.g., 'AAPL').
-	•	portfolio_dict (dict): A dictionary of tickers and their weights.
-	•	benchmark_ticker (str): The ticker for the benchmark (e.g., 'SPY').
-	•	risk_free_rate (float or str): A float (e.g., 0.05).
-	•	display_names (dict): Optional. A dictionary to map tickers to friendly names (e.g., {'AAPL': 'Apple'}).
-	•	sector_map (dict): Optional. Maps raw tickers to sector names (e.g., {'AAPL': 'Tech'}).
-	•	sector_caps (dict): Optional. Sets maximum allocation for sectors (e.g., {'Tech': 0.4}).
-	•	sector_mins (dict): Optional. Sets minimum allocation for sectors (e.g., {'Tech': 0.05}).
+```python
+from quant_reporter import (
+    get_optimization_inputs, optimize_risk_parity, optimize_hrp,
+    optimize_min_correlation, optimize_max_diversification,
+)
 
-## Core Library Functions
+mean_returns, cov_matrix, log_returns = get_optimization_inputs(price_df)
+weights_rp = optimize_risk_parity(cov_matrix)
+weights_hrp, _ = optimize_hrp(cov_matrix)
+```
 
-### You can import these directly for custom scripts.
-	•	get_data(tickers, start_date, end_date): Fetches and cleans price data.
-	•	calculate_metrics(data, asset_col, benchmark_col, ...): Returns (metrics_dict, plot_data_dict).
-	•	get_optimization_inputs(price_data): Returns (mean_returns, cov_matrix, log_returns).
-	•	build_constraints(num_assets, raw_tickers, ...): Creates constraint objects for the optimizer.
-	•	find_optimal_portfolio(objective_func, ...): The core SciPy optimizer.
-	•	plot_efficient_frontier(mean_returns, ...): Returns a Plotly Figure object.
-	•	plot_risk_contribution(...): Returns a Plotly Figure object.
-	•	(…and all other plot_ functions in plotting.py and opt_plotting.py)
+### Fama-French factor analysis
 
-### ⭐ NEW: Factor Models & Performance Attribution
-
-**Fama-French Factor Analysis:**
 ```python
 import quant_reporter as qr
 
-# 1. Fetch Fama-French factor data (Market, SMB, HML, Risk-Free)
-factors = qr.fetch_fama_french_factors(
-    dataset='F-F_Research_Data_Factors_daily',  # or monthly
-    start_date='2020-01-01'
-)
+factors = qr.fetch_fama_french_factors(dataset="F-F_Research_Data_Factors_daily",
+                                       start_date="2020-01-01")
+res = qr.run_factor_regression(portfolio_returns, factors)   # portfolio_returns: a pd.Series
+print(f"Alpha (annualized): {res['alpha']:.2%}")
+print(f"Market beta: {res['betas']['Mkt-RF']:.3f}  R^2: {res['r_squared']:.3f}")
 
-# 2. Run factor regression to find your portfolio's factor exposures
-results = qr.run_factor_regression(portfolio_returns, factors)
-
-print(f"Alpha: {results['alpha']:.2%}")  # Annualized
-print(f"Market Beta: {results['betas']['Mkt-RF']:.3f}")
-print(f"R-squared: {results['r_squared']:.3f}")
-
-# 3. Decompose returns by factor contributions
-attribution = qr.compute_factor_attribution(
-    portfolio_returns,
-    factors,
-    results['betas'],
-    results['alpha']
-)
+attribution = qr.compute_factor_attribution(portfolio_returns, factors,
+                                            res["betas"], res["alpha"])
 ```
 
-**Brinson Performance Attribution:**
+### Brinson performance attribution
+
 ```python
-# Compare portfolio vs benchmark to decompose excess returns
+import quant_reporter as qr
+
+# asset_returns: a DataFrame of per-asset returns (DatetimeIndex, one column per ticker)
 attribution = qr.compute_brinson_attribution(
-    portfolio_weights={'AAPL': 0.3, 'XOM': 0.4, 'JPM': 0.3},
-    portfolio_returns=portfolio_returns,
-    benchmark_weights={'AAPL': 0.2, 'XOM': 0.5, 'JPM': 0.2, 'GS': 0.1},
-    benchmark_returns=benchmark_returns,
-    sector_map={'AAPL': 'Tech', 'XOM': 'Energy', 'JPM': 'Finance', 'GS': 'Finance'}
+    portfolio_weights={"AAPL": 0.4, "XOM": 0.3, "JPM": 0.3},
+    benchmark_weights={"AAPL": 0.3, "XOM": 0.4, "JPM": 0.2, "GS": 0.1},
+    asset_returns=asset_returns,
+    sector_map={"AAPL": "Tech", "XOM": "Energy", "JPM": "Finance", "GS": "Finance"},
 )
-
-# Attribution shows:
-# - Allocation Effect: Return from sector weighting decisions
-# - Selection Effect: Return from security selection within sectors
-# - Interaction Effect: Combined allocation + selection decisions
+print(attribution.loc["Total"])   # Allocation_Effect, Selection_Effect, Interaction_Effect, ...
 ```
 
-See `examples/example_factor_models.py` for a complete working example.
+### Black-Litterman (low level)
+
+```python
+from quant_reporter import calculate_black_litterman_posterior
+
+posterior_returns, posterior_cov = calculate_black_litterman_posterior(
+    hist_mean_returns, cov_matrix,
+    view_dict={"AAPL": 0.10},
+    relative_views=[("NVDA", "AAPL", 0.03)],   # tuples of (outperformer, underperformer, spread)
+)
+```
+
+### Monte Carlo (low level)
+
+```python
+from quant_reporter import simulate_portfolio_paths, calculate_success_probabilities
+
+sim = simulate_portfolio_paths(weights, mean_returns, cov_matrix,
+                               num_simulations=5000, time_horizon=252)
+```
 
 ---
 
-### Future Development
-*   **Rebalancing Logic:** While visualization is supported, the core rebalancing function is still to be added properly (full transactional simulation, tax-loss harvesting, etc.).
-*   **Rolling Validation:** True "walk-forward" optimization with periodic rebalancing (e.g., re-optimize every quarter).
-*   **AI-Driven Insights:** Integrate LLMs to generate textual commentary and risk warnings based on the report data.
-*   **More Simulation Models:** Add support for GARCH or Bootstrapping models in Monte Carlo.
+## Migrating from 1.x
+
+2.0 unifies every report around `build_context`. The reports no longer take pre-computed
+returns/weights — they take the portfolio, benchmark, and training window and fetch data
+themselves:
+
+```python
+# 1.x
+qr.create_factor_report(portfolio_returns=returns, portfolio_name="Mine", filename="f.html")
+
+# 2.0
+qr.create_factor_report(portfolio_dict={"AAPL": 0.5, "MSFT": 0.5},
+                        benchmark_ticker="SPY",
+                        train_start="2020-01-01", train_end="2023-12-31",
+                        filename="f.html")
+```
+
+Other changes: `compute_brinson_attribution` now takes a single `asset_returns` matrix (plus
+portfolio/benchmark weight dicts and a `sector_map`) instead of separate return series;
+`create_full_report` is retained as an alias for `create_portfolio_report`.
+
+---
+
+## Examples & testing
+
+- `examples/generate_all_5_reports.py` — generates all five individual reports for a sample portfolio.
+- `examples/example_combined_report.py` — the combined flagship report.
+- `examples/example_black_litterman.py` — Black-Litterman views.
+
+```bash
+pip install -e ".[test]"
+pytest            # offline unit tests; the report smoke test is skipped without network
+```
+
+---
 
 ## License
 
-This project is licensed under the MIT License.
-
----
+MIT — see [LICENSE](LICENSE).
