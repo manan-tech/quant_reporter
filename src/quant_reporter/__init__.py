@@ -18,8 +18,9 @@ from .data import get_data
 from .metrics import calculate_metrics
 from .report_context import build_context, ReportContext
 
-# --- Simple Report Generator ---
-from .analysis import create_full_report
+# --- Simple Report Generator (create_full_report kept as a back-compat alias) ---
+from .portfolio_report import create_portfolio_report
+from .portfolio_report import create_portfolio_report as create_full_report
 
 # --- Optimization Core (for advanced use) ---
 from .opt_core import (
