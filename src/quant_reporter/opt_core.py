@@ -198,7 +198,12 @@ def get_risk_free_rate():
         if tbill is None or tbill.empty:
             raise Exception("^IRX download failed or returned no data")
         
-        latest_rate = tbill['Close'].iloc[-1] / 100 
+        close = tbill['Close']
+        # yfinance may return single-ticker data with multi-indexed columns,
+        # making tbill['Close'] a 1-column DataFrame instead of a Series.
+        if isinstance(close, pd.DataFrame):
+            close = close.iloc[:, 0]
+        latest_rate = float(close.iloc[-1]) / 100
         
         if not 0 <= latest_rate <= 0.2:
              raise Exception(f"Fetched rate ({latest_rate}) is unrealistic.")
