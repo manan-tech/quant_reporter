@@ -1,6 +1,7 @@
 from conftest import make_synthetic_prices
 from quant_reporter.report_context import build_context_from_prices
 from quant_reporter.portfolio_report import compute_portfolio_analysis
+from quant_reporter.optimization_report import compute_optimization_analysis
 
 
 def _ctx():
@@ -16,3 +17,9 @@ def test_portfolio_analysis_runs_offline_from_core():
     assert isinstance(sections, list) and len(sections) > 0
     # the report must not recompute drawdown independently of the core:
     assert ctx.analytics.drawdown.max_dd == ctx.analytics.drawdown.curve.min()
+
+
+def test_optimization_analysis_runs_offline_from_core():
+    ctx = _ctx()
+    sections = compute_optimization_analysis(ctx)
+    assert isinstance(sections, list) and len(sections) > 0
