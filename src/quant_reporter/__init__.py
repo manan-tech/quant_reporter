@@ -101,6 +101,7 @@ from .black_litterman import (
 # --- Full Report Generators ---
 from .optimization_report import create_optimization_report
 from .validation_report import create_validation_report
+from .factor_report import create_factor_report
 from .combined_report import create_combined_report
 
 # --- Rebalancing ---

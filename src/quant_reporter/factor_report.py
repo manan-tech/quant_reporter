@@ -186,7 +186,7 @@ def compute_factor_analysis(ctx: ReportContext):
         metrics_dict = {
             "Factor Metrics": {
                 "R-Squared": f"{reg_results['r_squared']:.1%}",
-                "Annualized Alpha": f"{reg_results['alpha'] * 252:.2%}", # Simple annualized
+                "Annualized Alpha": f"{reg_results['alpha']:.2%}",  # run_factor_regression already annualizes alpha
                 "Market Beta": f"{reg_results['betas'].get('Mkt-RF', 0):.2f}"
             }
         }
