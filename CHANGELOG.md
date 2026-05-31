@@ -13,6 +13,15 @@ All notable changes to `quant_reporter` are documented here. This project follow
   (no network); enables offline use and testing.
 - `rebalance_freq` is now honored end-to-end (it was previously accepted but ignored): portfolio
   Growth-of-$1 routes through the rebalancing engine; `None` = buy-and-hold (default, unchanged).
+- SP1a foundations (`signals.py`, `robust_estimators.py`, `backtest.py`): `compute_trailing_volatility`,
+  `volatility_target_positions`, `ledoit_wolf_covariance`, `portfolio_turnover`, `drawdown_stats` —
+  pure, look-ahead-safe Phase-1 primitives (no new dependencies).
+- SP1b cost-aware backtest engine: `simulate_strategy` (dict or dated-schedule weights; frictionless
+  buy-and-hold matches `simulate_rebalanced_portfolio`), `transaction_cost_model` (commission + half-spread;
+  `impact_model` hook reserved — market impact is future work), `generate_rebalance_dates`,
+  `run_rolling_windows(return_schedule=True)` weight-schedule unlock, and `performance_stats.py`
+  (`probabilistic_sharpe_ratio`, `deflated_sharpe_ratio`, `compare_strategies_oos`). Flagship:
+  `examples/example_walk_forward_backtest.py`.
 
 ### Changed
 - **Breaking:** removed the string-returning `calculate_metrics`; use `compute_metrics` (numeric) + `format_metrics` for display.

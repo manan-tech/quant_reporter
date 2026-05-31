@@ -63,13 +63,22 @@ def calculate_overfitting_score(is_metrics, oos_metrics):
     return pd.DataFrame.from_dict(scores, orient='index')
 
 def run_rolling_windows(ctx: ReportContext, window_years=1, step_months=3,
-                        denoise_cov: bool = False, n_components: int = 3):
+                        denoise_cov: bool = False, n_components: int = 3,
+                        return_schedule: bool = False):
     """
     Performs Rolling Window Walk-Forward Validation using a fixed window size.
     Returns a dataframe of out-of-sample Sharpe ratios across all periods.
+
+    When ``return_schedule=True``, additionally returns a per-strategy weight
+    schedule as ``(rolling_df, target_weight_schedule)`` where
+    ``target_weight_schedule`` is ``dict[strategy_name -> DataFrame]`` (index = each
+    window's OOS start date, columns = ``ctx.friendly_tickers``, values = that
+    window's weights) for the strategies built inside the loop: ``Equal Wt``,
+    ``Min Vol``, ``Max Sharpe``, ``User Portfolio``.
     """
     results = []
-    
+    schedule_rows = {"Equal Wt": {}, "Min Vol": {}, "Max Sharpe": {}, "User Portfolio": {}}
+
     start_date = ctx.price_data_full.index.min()
     end_date = ctx.price_data_full.index.max()
     
@@ -110,7 +119,10 @@ def run_rolling_windows(ctx: ReportContext, window_years=1, step_months=3,
                 "Max Sharpe": {t: w for t, w in zip(ctx.friendly_tickers, max_sharpe_arr)},
                 "User Portfolio": ctx.user_friendly_weights
             }
-            
+
+            for _name, _w in w_dicts.items():
+                schedule_rows[_name][test_start] = _w
+
             window_metrics = {"Test Period": f"{test_start.strftime('%Y-%m')} to {test_end.strftime('%Y-%m')}"}
             
             bench_growth = (test_data[ctx.friendly_benchmark] / test_data[ctx.friendly_benchmark].iloc[0])
@@ -126,9 +138,15 @@ def run_rolling_windows(ctx: ReportContext, window_years=1, step_months=3,
             
         current_train_start += pd.Timedelta(days=step_days)
     
-    if len(results) > 0:
-        return pd.DataFrame(results).set_index("Test Period")
-    return pd.DataFrame()
+    rolling_df = pd.DataFrame(results).set_index("Test Period") if results else pd.DataFrame()
+    if return_schedule:
+        schedule = {
+            name: pd.DataFrame.from_dict(rows, orient="index").reindex(
+                columns=ctx.friendly_tickers).sort_index()
+            for name, rows in schedule_rows.items()
+        }
+        return rolling_df, schedule
+    return rolling_df
 
 
 def compute_validation_analysis(ctx: ReportContext):

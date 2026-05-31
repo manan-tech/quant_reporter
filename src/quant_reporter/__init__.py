@@ -131,4 +131,21 @@ from .backtest import (
     drawdown_stats,
 )
 
+# --- Backtest Engine (SP1b: costs, scheduling, the hub) ---
+from .backtest import (
+    transaction_cost_model,
+    generate_rebalance_dates,
+    simulate_strategy,
+)
+
+# --- Performance Statistics (honest OOS selection) ---
+from .performance_stats import (
+    probabilistic_sharpe_ratio,
+    deflated_sharpe_ratio,
+    compare_strategies_oos,
+)
+
+# --- Walk-Forward (schedule unlock) ---
+from .validation_report import run_rolling_windows
+
 __version__ = "2.0.0"
