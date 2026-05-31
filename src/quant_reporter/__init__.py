@@ -116,4 +116,19 @@ from .combined_report import create_combined_report
 # --- Rebalancing ---
 from .rebalancing import simulate_rebalanced_portfolio
 
+# --- Signals (volatility estimation & vol-targeting) ---
+from .signals import (
+    compute_trailing_volatility,
+    volatility_target_positions,
+)
+
+# --- Robust Estimators ---
+from .robust_estimators import ledoit_wolf_covariance
+
+# --- Backtest Engine (Phase-1 primitives) ---
+from .backtest import (
+    portfolio_turnover,
+    drawdown_stats,
+)
+
 __version__ = "2.0.0"
