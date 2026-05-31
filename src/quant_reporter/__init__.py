@@ -16,6 +16,7 @@ def enable_logging(level=logging.INFO):
 # --- Core Utilities (for advanced use) ---
 from .data import get_data
 from .metrics import calculate_metrics
+from .report_context import build_context, ReportContext
 
 # --- Simple Report Generator ---
 from .analysis import create_full_report
