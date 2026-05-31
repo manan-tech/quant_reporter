@@ -70,10 +70,10 @@ def main():
     logger.info("=========================================")
     logger.info("   GENERATING ALL 5 INDIVIDUAL REPORTS   ")
     logger.info("=========================================")
-    
-    # Needs actual timeseries dict payload for generic factor report since it takes returns natively... Wait, no the contextual build handles this if we pass args or kwargs. Actually the factor report requires returns, but let's see. 
-    # Let me just build the context and pass what's needed. But wait, create_factor_report requires portfolio_returns or what? Yes, wait no, let me just construct the report wrappers smoothly. 
-    
+
+    # Each generator builds its own ReportContext from the same inputs
+    # (portfolio_dict, benchmark, train window) and fetches data as needed.
+
     # 1. Portfolio Report
     p_path = os.path.join(REPORTS_DIR, '01_Portfolio_Report.html')
     qr.create_portfolio_report(
