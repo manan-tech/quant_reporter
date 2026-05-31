@@ -9,15 +9,30 @@ All notable changes to `quant_reporter` are documented here. This project follow
 - Analytics core (`analytics.py`): `portfolio_returns`/`ReturnsBundle`, `compute_metrics` (numeric)
   + `format_metrics`, `compute_drawdown`/`DrawdownResult`, and the memoized `ctx.analytics` accessor —
   the single source of truth for portfolio returns, growth, drawdown, and realized metrics.
+- `build_context_from_prices()` — build a `ReportContext` from an already-fetched price DataFrame
+  (no network); enables offline use and testing.
+- `rebalance_freq` is now honored end-to-end (it was previously accepted but ignored): portfolio
+  Growth-of-$1 routes through the rebalancing engine; `None` = buy-and-hold (default, unchanged).
 
 ### Changed
 - **Breaking:** removed the string-returning `calculate_metrics`; use `compute_metrics` (numeric) + `format_metrics` for display.
+- **Reports are now pure assemblers over `ctx.analytics`** — every report reads the same compute-once
+  values. This fixes the dual-basis inconsistency: realized metrics (simple-return path) and the
+  optimizer's expected/model metrics (log moments) are now clearly distinguished ("Realized …" vs
+  "Expected …"), and drawdown/Sharpe/VaR are no longer recomputed divergently across sections.
+- Monte Carlo: the duplicated engine was merged into one **seeded, reproducible** engine; simulated
+  tail risk is labeled "Horizon VaR/CVaR (simulated)" vs daily historical VaR/CVaR.
+- Factor attribution: portfolio is regressed on the canonical full-period returns via a single
+  excess-return OLS engine (static + rolling unified, risk-free rate threaded; rolling uses the
+  3-factor core). Brinson is now **honestly labeled** — "vs Equal-Weight Baseline" unless real
+  benchmark sector weights are supplied (via `ctx.benchmark_weights`).
+- Combined report is **fail-loud**: a failing module renders a visible error section (deterministic
+  output) with an optional `strict=True` to re-raise; Monte Carlo parameters are forwarded; the
+  duplicated correlation heatmap is de-duplicated.
+- Walk-forward validation now uses the same covariance treatment (`denoise_cov`/`n_components`) as the
+  in-sample optimization, and computes metrics numerically (no string round-trip).
 - Risk-free-rate fetch failure now falls back to **0.02** (was 0.06) via `DEFAULT_RISK_FREE_RATE`,
   matching `build_context`'s default — one documented fallback.
-
-### Notes
-- Report modules still use the legacy `calculate_metrics`; migration to the new core (and its clean
-  break to numeric output) lands in SP0 Part B.
 
 ## [2.0.0]
 
