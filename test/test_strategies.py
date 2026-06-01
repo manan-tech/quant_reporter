@@ -78,8 +78,8 @@ def test_cross_sectional_momentum_drops_warmup_rows():
     prices = _prices(n=800)
     sched = cross_sectional_momentum(prices)
     first_loc = prices.index.get_loc(sched.index[0])
-    # vol_lookback=63 drives NaN warmup; schedule must start at or after that boundary.
-    assert first_loc >= 63, f"schedule starts at row {first_loc}; warmup not dropped"
+    # score lookback=126 drives NaN warmup; schedule must start well after that boundary.
+    assert first_loc >= 100, f"schedule starts at row {first_loc}; warmup not dropped"
 
 
 def test_vol_target_overlay_tilts_toward_low_vol():

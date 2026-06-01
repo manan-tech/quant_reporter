@@ -90,7 +90,9 @@ def cross_sectional_momentum(prices, lookback=126, skip_recent=5, target_vol=0.1
                              vol_lookback=63, max_leverage=2.0, **kwargs):
     from .signals import cross_sectional_momentum_score, volatility_target_positions
     score = cross_sectional_momentum_score(prices, lookback=lookback, skip_recent=skip_recent)
-    longs = (score > 0).astype(float)
+    # Preserve NaN during the score warmup so undefined rows are dropped (not
+    # silently treated as a flat/equal-weight position) by _long_only_schedule.
+    longs = (score > 0).astype(float).where(score.notna())
     sized = volatility_target_positions(longs, prices.pct_change(), target_vol=target_vol,
                                         vol_lookback=vol_lookback, method="ewma",
                                         max_leverage=max_leverage, scaling="per_asset")
