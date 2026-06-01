@@ -1,7 +1,6 @@
 import logging
 import pandas as pd
 import numpy as np
-import traceback
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +14,6 @@ from .opt_core import (
     objective_neg_sharpe,
     objective_min_variance,
     calculate_efficient_frontier_curve,
-    calculate_rolling_returns,
     get_portfolio_price,
     build_constraints
 )
@@ -179,7 +177,7 @@ def compute_optimization_analysis(ctx: ReportContext):
     if ctx.bl_views or ctx.bl_relative_views:
         logger.info("Running Black-Litterman optimization...")
         try:
-            market_caps = get_market_caps(ctx.tickers)
+            market_caps = get_market_caps(ctx.tickers, provider=ctx.data_provider)
             bl_market_weights = calculate_market_weights(market_caps)
             bl_market_weights = bl_market_weights.reindex(ctx.friendly_tickers).fillna(0)
             bl_market_weights = bl_market_weights / bl_market_weights.sum()

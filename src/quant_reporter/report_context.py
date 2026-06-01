@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from .data import get_data
 from .opt_core import get_risk_free_rate, get_optimization_inputs, DEFAULT_RISK_FREE_RATE
 from .analytics import PortfolioAnalytics
+from .providers import DataProvider, get_default_provider
 
 logger = logging.getLogger(__name__)
 
@@ -65,8 +66,14 @@ class ReportContext:
     denoise_cov: bool = False
     n_components: int = 3
 
+    # The data backend this context was built with (yfinance by default).
+    # Downstream consumers that need extra fetches (market caps, fundamentals)
+    # reuse it so the whole report draws from one source.
+    data_provider: object = None
+
 def _resolve_dates_and_rfr(train_start: str, train_end: str,
-                           risk_free_rate: Union[float, str]):
+                           risk_free_rate: Union[float, str],
+                           provider: Optional[DataProvider] = None):
     """Shared step 1+2: date resolution and risk-free-rate resolution."""
     test_start_dt = pd.to_datetime(train_end) + timedelta(days=1)
     test_end_dt = datetime.now() - timedelta(days=1)
@@ -76,7 +83,7 @@ def _resolve_dates_and_rfr(train_start: str, train_end: str,
     full_end = test_end
 
     if isinstance(risk_free_rate, str) and risk_free_rate.lower() == 'auto':
-        rfr = get_risk_free_rate()
+        rfr = get_risk_free_rate(provider=provider)
     elif isinstance(risk_free_rate, (int, float)):
         rfr = float(risk_free_rate)
     else:
@@ -136,7 +143,8 @@ def _assemble_context(price_data_full: pd.DataFrame,
                       bl_relative_view_confidences: Optional[List[float]],
                       rebalance_freq: Optional[str],
                       denoise_cov: bool,
-                      n_components: int) -> ReportContext:
+                      n_components: int,
+                      data_provider: Optional[DataProvider] = None) -> ReportContext:
     """
     Post-fetch assembly: rename columns, drop missing tickers, renormalize weights,
     split train/test, compute optimization inputs, construct and return ReportContext.
@@ -227,6 +235,7 @@ def _assemble_context(price_data_full: pd.DataFrame,
         log_returns=log_returns,
         denoise_cov=denoise_cov,
         n_components=n_components,
+        data_provider=data_provider,
     )
     ctx.analytics = PortfolioAnalytics(ctx)
     return ctx
@@ -244,14 +253,22 @@ def build_context(portfolio_dict: Dict[str, float], benchmark_ticker: str,
                   bl_relative_views: Optional[List[Dict]] = None,
                   bl_relative_view_confidences: Optional[List[float]] = None,
                   rebalance_freq: Optional[str] = None,
-                  denoise_cov: bool = False, n_components: int = 3, **kwargs) -> ReportContext:
+                  denoise_cov: bool = False, n_components: int = 3,
+                  data_provider: Optional[DataProvider] = None, **kwargs) -> ReportContext:
     """
     Factory function to fetch data and construct the ReportContext, removing duplication
     across all individual report generators.
+
+    Pass ``data_provider`` to fetch from a custom backend (Bloomberg, Refinitiv,
+    a local CSV, a test fixture) instead of the default yfinance scraper. The
+    provider must satisfy the :class:`~quant_reporter.providers.DataProvider`
+    protocol. Defaults to the globally configured provider.
     """
+    provider = data_provider if data_provider is not None else get_default_provider()
+
     # 1+2. Date and risk-free-rate resolution
     test_start, test_end, full_start, full_end, rfr = _resolve_dates_and_rfr(
-        train_start, train_end, risk_free_rate
+        train_start, train_end, risk_free_rate, provider=provider
     )
 
     # 3. Ticker/display-name mapping
@@ -261,7 +278,7 @@ def build_context(portfolio_dict: Dict[str, float], benchmark_ticker: str,
 
     # 4. Fetch Data Once
     all_tickers = tickers + [benchmark_ticker]
-    price_data_full = get_data(all_tickers, full_start, full_end)
+    price_data_full = get_data(all_tickers, full_start, full_end, provider=provider)
     if price_data_full is None or price_data_full.empty:
         raise ValueError("Failed to fetch price data.")
 
@@ -292,6 +309,7 @@ def build_context(portfolio_dict: Dict[str, float], benchmark_ticker: str,
         rebalance_freq=rebalance_freq,
         denoise_cov=denoise_cov,
         n_components=n_components,
+        data_provider=provider,
     )
 
 
@@ -312,15 +330,23 @@ def build_context_from_prices(price_data_full: pd.DataFrame,
                               rebalance_freq: Optional[str] = None,
                               denoise_cov: bool = False,
                               n_components: int = 3,
+                              data_provider: Optional[DataProvider] = None,
                               **kwargs) -> ReportContext:
     """Build a ReportContext from an already-fetched price DataFrame (no network).
 
     price_data_full must contain every portfolio ticker column + the benchmark column.
     Accepts the same optional keyword arguments as build_context.
+
+    No prices are fetched. ``data_provider`` is still recorded on the context (and
+    used only if ``risk_free_rate="auto"`` requires a rate lookup) so downstream
+    consumers reuse the same backend; pass a numeric ``risk_free_rate`` to stay
+    fully offline.
     """
+    provider = data_provider if data_provider is not None else get_default_provider()
+
     # 1+2. Date and risk-free-rate resolution (identical to build_context)
     test_start, test_end, full_start, full_end, rfr = _resolve_dates_and_rfr(
-        train_start, train_end, risk_free_rate
+        train_start, train_end, risk_free_rate, provider=provider
     )
 
     # 3. Ticker/display-name mapping
@@ -356,4 +382,5 @@ def build_context_from_prices(price_data_full: pd.DataFrame,
         rebalance_freq=rebalance_freq,
         denoise_cov=denoise_cov,
         n_components=n_components,
+        data_provider=provider,
     )

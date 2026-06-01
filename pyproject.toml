@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "quant_reporter"
-version = "2.0.0"
+version = "2.1.0"
 authors = [
-  { name="Manan Bansal", email="mananpbansal@gmail.com" },
+  { name="Manan Bansal", email="manan@targetpeak.in" },
 ]
-description = "A Python module to generate quantitative finance reports."
+description = "Portfolio analytics, MPT optimization, cost-aware backtesting, and walk-forward validation for systematic traders and quant researchers. Not financial advice."
 readme = {file = "README.md", content-type = "text/markdown"}
-license = { file="LICENSE" }
+license = { text = "MIT" }
 requires-python = ">=3.9"
 classifiers = [
     "License :: OSI Approved :: MIT License",
@@ -23,11 +23,12 @@ classifiers = [
     "Intended Audience :: Financial and Insurance Industry",
     "Operating System :: OS Independent",
     "Topic :: Office/Business :: Financial :: Investment",
+    "Topic :: Scientific/Engineering :: Information Analysis",
 ]
 dependencies = [
     "pandas>=2.2",
-    "numpy",
-    "yfinance",
+    "numpy>=1.24,<3",
+    "yfinance>=0.2.36",
     "plotly",
     "scipy",
     "scikit-learn>=1.0.0",
@@ -44,3 +45,23 @@ Issues = "https://github.com/manan-tech/quant_reporter/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+quant_reporter = ["py.typed"]
+
+[tool.ruff]
+line-length = 88
+extend-exclude = [".venv", "dist", "build", "docs"]
+
+[tool.ruff.lint]
+# High-signal rules only: real bugs (pyflakes F-codes) + syntax errors (E9).
+# Stylistic E/W codes (line length, whitespace) are deliberately not gated —
+# the existing codebase carries pre-existing style debt that is out of scope.
+select = ["F", "E9"]
+# F841 (unused locals): a handful of pre-existing dead assignments, not bugs.
+ignore = ["F841"]
+
+[tool.ruff.lint.per-file-ignores]
+# __init__.py intentionally re-exports the public API (F401 = "imported but
+# unused") and re-imports a couple of same-named helpers (F811).
+"__init__.py" = ["F401", "F811"]

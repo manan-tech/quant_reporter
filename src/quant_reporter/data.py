@@ -1,39 +1,24 @@
 import logging
+from typing import List, Optional
+
 import pandas as pd
-import yfinance as yf
+
+from .providers import DataProvider, get_default_provider
 
 logger = logging.getLogger(__name__)
 
-def get_data(tickers, start_date, end_date):
+
+def get_data(
+    tickers: List[str],
+    start_date: str,
+    end_date: str,
+    provider: Optional[DataProvider] = None,
+) -> Optional[pd.DataFrame]:
     """
-    Fetches adjusted close data for a list of tickers, handling
-    mismatched trading days and missing data.
+    Fetch adjusted close prices for *tickers* between *start_date* and *end_date*.
+
+    By default uses the global YFinanceProvider. Pass a custom *provider* to use
+    Bloomberg, Refinitiv, CSV data, or a test fixture instead.
     """
-    logger.info("Fetching data for %s...", ', '.join(tickers))
-    try:
-        # threads=False to avoid "OperationalError: unable to open database file" with yfinance cache
-        all_data = yf.download(tickers, start=start_date, end=end_date, threads=False)
-        
-        if all_data.empty:
-            raise ValueError("No data downloaded. Check tickers and date range.")
-
-        if 'Close' not in all_data:
-             raise ValueError("Downloaded data does not contain 'Close' prices.")
-
-        data = all_data['Close']
-        
-        if isinstance(data, pd.Series):
-            data = data.to_frame(name=tickers[0])
-            
-        # Forward-fill and back-fill to handle holidays/mismatched calendars
-        data_filled = data.ffill().bfill()
-
-        # We must drop any rows that are *still* NaN
-        # (e.g., assets that didn't exist at the start)
-        data_filled = data_filled.dropna()
-
-        return data_filled
-        
-    except Exception as e:
-        logger.error("Error fetching data: %s", e)
-        return None
+    p = provider if provider is not None else get_default_provider()
+    return p.get_prices(tickers, start_date, end_date)

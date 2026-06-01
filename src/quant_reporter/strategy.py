@@ -10,7 +10,6 @@ from dataclasses import dataclass, field
 from functools import cached_property
 from typing import Callable, Optional
 
-import numpy as np
 import pandas as pd
 
 from .backtest import simulate_strategy

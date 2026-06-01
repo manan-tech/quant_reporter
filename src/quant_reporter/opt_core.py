@@ -3,12 +3,10 @@ import warnings
 import pandas as pd
 import numpy as np
 import scipy.optimize as sco
-import yfinance as yf
-
 logger = logging.getLogger(__name__)
-from .data import get_data
-
-DEFAULT_RISK_FREE_RATE = 0.02
+from .providers import get_default_provider
+# Re-exported for backward compatibility (originally defined here; now lives in providers).
+from .providers import DEFAULT_RISK_FREE_RATE  # noqa: F401
 
 # --- 1. Core Portfolio Math ---
 
@@ -189,33 +187,13 @@ def build_constraints(num_assets, raw_tickers, sector_map=None, sector_caps=None
 
 # --- 5. Helper Functions ---
 
-def get_risk_free_rate():
+def get_risk_free_rate(provider=None):
     """
-    Fetches the latest 13-week US T-bill rate (^IRX) as a decimal.
+    Fetches the latest 13-week US T-bill rate as a decimal via the active DataProvider.
+    Falls back to DEFAULT_RISK_FREE_RATE (0.02) on any failure.
     """
-    try:
-        logger.info("Fetching live risk-free rate (^IRX)...")
-        tbill = yf.download("^IRX", period="5d") 
-        
-        if tbill is None or tbill.empty:
-            raise Exception("^IRX download failed or returned no data")
-        
-        close = tbill['Close']
-        # yfinance may return single-ticker data with multi-indexed columns,
-        # making tbill['Close'] a 1-column DataFrame instead of a Series.
-        if isinstance(close, pd.DataFrame):
-            close = close.iloc[:, 0]
-        latest_rate = float(close.iloc[-1]) / 100
-        
-        if not 0 <= latest_rate <= 0.2:
-             raise Exception(f"Fetched rate ({latest_rate}) is unrealistic.")
-             
-        logger.info("Using live risk-free rate: %.2f%%", latest_rate * 100)
-        return latest_rate
-    except Exception as e:
-        logger.warning("Could not fetch live risk-free rate. Defaulting to %.2f. Error: %s",
-                       DEFAULT_RISK_FREE_RATE, e)
-        return DEFAULT_RISK_FREE_RATE
+    p = provider if provider is not None else get_default_provider()
+    return p.get_risk_free_rate()
 
 def calculate_rolling_returns(cumulative_df):
     """

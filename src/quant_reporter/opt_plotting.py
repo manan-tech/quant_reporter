@@ -5,7 +5,6 @@ import plotly.graph_objects as go
 import plotly.express as px
 
 logger = logging.getLogger(__name__)
-import plotly.io as pio
 from plotly.subplots import make_subplots
 
 # Import the core math function this file needs

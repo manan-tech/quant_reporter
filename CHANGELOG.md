@@ -3,7 +3,7 @@
 All notable changes to `quant_reporter` are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
-## [2.1.0] - Unreleased
+## [2.1.0] - 2026-06-01
 
 ### Added
 - Analytics core (`analytics.py`): `portfolio_returns`/`ReturnsBundle`, `compute_metrics` (numeric)

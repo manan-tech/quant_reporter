@@ -1,9 +1,38 @@
 # Quant Reporter
 
-A Python library for advanced quantitative portfolio analysis, optimization, validation, and reporting.
+[![CI](https://github.com/manan-tech/quant_reporter/actions/workflows/ci.yml/badge.svg)](https://github.com/manan-tech/quant_reporter/actions/workflows/ci.yml)
+[![PyPI version](https://img.shields.io/pypi/v/quant-reporter.svg)](https://pypi.org/project/quant-reporter/)
+[![Python versions](https://img.shields.io/pypi/pyversions/quant-reporter.svg)](https://pypi.org/project/quant-reporter/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+Portfolio analytics, MPT optimization, cost-aware backtesting, and walk-forward validation for systematic traders and quant researchers.
+
+> **Not financial advice — see [Disclaimer](#disclaimer).** Pulls market data from Yahoo Finance via `yfinance` (network access — see [Data sources & offline use](#data-sources--offline-use)).
 
 `quant_reporter` turns a plain `{ticker: weight}` portfolio into rich, interactive, multi-page HTML reports. It is built on `pandas`, `numpy`, `scipy`, `statsmodels`, `yfinance`, and `plotly`, and covers performance & risk analytics, modern portfolio optimization, Monte Carlo forecasting, walk-forward validation, and Fama-French / Brinson attribution.
 
+### 30-second start
+
+```bash
+pip install quant-reporter
+```
+
+```python
+import quant_reporter as qr
+
+# Build a full multi-page HTML report for a portfolio vs. a benchmark.
+qr.create_portfolio_report(
+    {"AAPL": 0.6, "MSFT": 0.4}, "SPY",
+    "2020-01-01", "2023-12-31",
+    filename="report.html",
+)
+# → open report.html
+```
+
+That's the whole loop: a `{ticker: weight}` dict in, an interactive report out. Everything below (optimization, backtesting, Black-Litterman, custom data sources) is optional depth.
+
+> **Version note:** the last release on PyPI was `1.1.1`. `2.0.0` was an internal milestone and was **never published**, so `2.1.0` is the first 2.x release you can `pip install`. The 1.x → 2.x change is breaking (see [Migrating from 1.x](#migrating-from-1x)).
+>
 > **2.0** introduces a unified `ReportContext` architecture: every report takes the same inputs — a portfolio, a benchmark, and a training window — fetches data **once**, and renders. This is a breaking change from 1.x (see [Migrating from 1.x](#migrating-from-1x)).
 >
 > **2.1** adds a primitives-first **strategy → backtest → report** loop — a cost-aware, walk-forward backtest engine with honest out-of-sample statistics (PSR/DSR) and an interactive backtest report — plus an opt-in **recommendation layer** (target weights, rebalance trade lists, risk-limit alerts, strategy verdicts, each carrying its rationale & evidence). All additive; the 2.0 API is unchanged. See [Strategy backtesting & recommendations](#strategy-backtesting--recommendations-21).
@@ -77,9 +106,42 @@ qr.create_combined_report(
 
 ---
 
+## Data sources & offline use
+
+By default `quant_reporter` fetches prices and the risk-free rate from Yahoo Finance via [`yfinance`](https://github.com/ranaroussi/yfinance). **This means a normal report run makes live network calls** — relevant for corporate, air-gapped, or compliance-sensitive environments.
+
+All data access goes through a single `DataProvider` protocol, so you can swap Yahoo for Bloomberg, Refinitiv, a local CSV, or a test fixture without touching any report code. A provider only needs two methods:
+
+```python
+import pandas as pd
+import quant_reporter as qr
+
+class CSVProvider:
+    """Reads prices from a local CSV — no network, fully reproducible."""
+    def __init__(self, csv_path):
+        self._prices = pd.read_csv(csv_path, index_col=0, parse_dates=True)
+    def get_prices(self, tickers, start, end):
+        return self._prices.loc[start:end, list(tickers)]
+    def get_risk_free_rate(self):
+        return 0.045
+
+provider = CSVProvider("prices.csv")
+
+# Per call:
+qr.create_combined_report(portfolio, "SPY", "2018-01-01", "2023-12-31",
+                          filename="report.html", data_provider=provider)
+
+# …or globally, for the whole session:
+qr.set_default_provider(provider)
+```
+
+Already have a price DataFrame in memory? `qr.build_context_from_prices(prices, ...)` skips fetching entirely. Pass a numeric `risk_free_rate=` (instead of `"auto"`) to stay 100% offline. (Black-Litterman market caps and per-asset fundamentals are opt-in extras that still use yfinance unless your provider also implements `get_market_caps`.)
+
+---
+
 ## The report generators
 
-All six accept the common signature above; the options below are all keyword-only and optional.
+All six accept the common signature above; the options below are all keyword-only and optional. Every generator also accepts `data_provider=` (see [Data sources & offline use](#data-sources--offline-use)).
 
 | Function | Focus |
 |---|---|
@@ -329,6 +391,24 @@ pytest            # offline unit tests; the report smoke test is skipped without
 
 ---
 
+## Support & status
+
+`quant_reporter` is maintained by a single author on a **best-effort** basis. Bug
+reports and PRs are welcome via [GitHub Issues](https://github.com/manan-tech/quant_reporter/issues);
+responses are not guaranteed on any timeline. For security reports, see
+[SECURITY.md](SECURITY.md). The public API follows [SemVer](https://semver.org/) —
+breaking changes bump the major version.
+
+---
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+---
+
+## Disclaimer
+
+**Not financial advice.** `quant_reporter` is provided for informational, research, and educational purposes only. It does not constitute financial, investment, tax, or legal advice, nor a recommendation or solicitation to buy or sell any security or financial instrument. Outputs may be inaccurate or incomplete, and all models carry assumptions and limitations (for example, the Monte Carlo engine assumes Geometric Brownian Motion, which has thin tails and **understates crash risk**). You are solely responsible for any decisions made using this software. Use at your own risk; the authors accept no liability for any losses.
+
+**Market-data source / Yahoo Finance terms.** `quant_reporter` uses the third-party [`yfinance`](https://github.com/ranaroussi/yfinance) library (Apache-2.0) to retrieve market data from Yahoo Finance. This project is **not** affiliated with, endorsed by, or vetted by Yahoo, Inc. The data is intended for personal use and may be subject to [Yahoo's Terms of Service](https://policies.yahoo.com/us/en/yahoo/terms/index.htm). You are responsible for reviewing and complying with those terms before using any retrieved data, particularly for commercial purposes.

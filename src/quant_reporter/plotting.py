@@ -1,7 +1,5 @@
 import plotly.graph_objects as go
 import plotly.express as px
-from scipy import stats
-import numpy as np
 
 def plot_cumulative_returns(plot_data, asset_ticker, benchmark_ticker):
     cumulative_returns = plot_data['cumulative_returns']

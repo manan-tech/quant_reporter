@@ -17,7 +17,6 @@ from .plotting import (
 )
 from .opt_plotting import (
     plot_portfolio_vs_constituents,
-    plot_drawdown_comparison,
     plot_correlation_heatmap,
 )
 from .html_builder import generate_html_report

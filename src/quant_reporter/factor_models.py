@@ -10,10 +10,9 @@ import numpy as np
 import pandas as pd
 import requests
 import io
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any
 from pathlib import Path
 import statsmodels.api as sm
-from datetime import datetime
 
 logger = logging.getLogger(__name__)
 

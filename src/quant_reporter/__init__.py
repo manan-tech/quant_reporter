@@ -3,6 +3,9 @@ import logging
 # Library logging best practice: add NullHandler so users can control output.
 logging.getLogger('quant_reporter').addHandler(logging.NullHandler())
 
+# --- Data provider abstraction (swap yfinance for Bloomberg, CSV, etc.) ---
+from .providers import DataProvider, YFinanceProvider, get_default_provider, set_default_provider
+
 
 def enable_logging(level=logging.INFO):
     """Enable console logging for quant_reporter. Call with logging.DEBUG for verbose output."""
@@ -75,12 +78,15 @@ from .plotting import (
 )
 
 # --- Optimization Plotting (for advanced use) ---
+# Note: opt_plotting's rolling-Sharpe is the multi-strategy COMPARISON variant
+# (takes a DataFrame of strategies). It is exported under a distinct name so it
+# no longer shadows plotting.plot_rolling_sharpe (the single-portfolio variant).
 from .opt_plotting import (
     plot_efficient_frontier,
     plot_correlation_heatmap,
     plot_cumulative_comparison,
     plot_drawdown_comparison,
-    plot_rolling_sharpe,
+    plot_rolling_sharpe as plot_rolling_sharpe_comparison,
     plot_composition_pies,
     plot_risk_contribution,
     plot_monthly_heatmaps,
@@ -220,4 +226,4 @@ from .recommendation import (
 )
 from .recommendation_report import create_recommendation_report
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
