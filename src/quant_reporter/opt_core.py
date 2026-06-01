@@ -1,4 +1,5 @@
 import logging
+import warnings
 import pandas as pd
 import numpy as np
 import scipy.optimize as sco
@@ -415,8 +416,12 @@ def optimize_risk_budget(cov_matrix, budget=None):
     bounds = [(1e-6, 1.0)] * n
     constraints = [{"type": "eq", "fun": lambda w: np.sum(w) - 1.0}]
 
-    result = sco.minimize(_objective, w0, method="SLSQP", bounds=bounds,
-                          constraints=constraints, options={"ftol": 1e-12, "maxiter": 500})
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore",
+                                message="Values in x were outside bounds",
+                                category=RuntimeWarning)
+        result = sco.minimize(_objective, w0, method="SLSQP", bounds=bounds,
+                              constraints=constraints, options={"ftol": 1e-12, "maxiter": 500})
 
     w_opt = np.clip(result.x, 0.0, 1.0)
     w_opt = w_opt / w_opt.sum()

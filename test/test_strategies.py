@@ -92,3 +92,18 @@ def test_vol_target_overlay_tilts_toward_low_vol():
     assert last["AAA"] > last["CCC"]
     # And it must NOT be uniform equal weight (proves it isn't a no-op).
     assert abs(last["AAA"] - last["CCC"]) > 1e-3
+
+
+@settings(max_examples=15, deadline=None)
+@given(cut=st.integers(min_value=200, max_value=400))
+def test_cross_sectional_momentum_is_causal(cut):
+    prices = _prices(n=600, seed=6)
+    base = cross_sectional_momentum(prices)
+    shuffled = prices.copy()
+    rng = np.random.default_rng(11)
+    tail = np.arange(cut + 1, len(prices))
+    shuffled.iloc[cut + 1:] = prices.iloc[rng.permutation(tail)].values
+    shuf = cross_sectional_momentum(shuffled)
+    common = base.index.intersection(shuf.index)
+    common = [d for d in common if prices.index.get_loc(d) <= cut]
+    pd.testing.assert_frame_equal(base.loc[common], shuf.loc[common])

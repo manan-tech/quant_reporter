@@ -108,7 +108,8 @@ def _comparison_section(results):
         "main_content": [
             {"type": "plot", "title": "Wealth Comparison", "data": fig},
             {"type": "table_html", "title": "OOS Stats (SR / PSR / DSR)",
-             "data": summary_df.to_html(classes="metrics-table")},
+             "data": summary_df.to_html(classes="metrics-table", border=0,
+                                        float_format=lambda x: f"{x:.3f}")},
         ],
     }
 

@@ -22,6 +22,11 @@ def neg_sharpe(weights, mean_returns, cov_matrix, risk_free_rate=0.02):
 
 
 def variance(weights, mean_returns=None, cov_matrix=None, risk_free_rate=0.02):
+    """Portfolio variance wᵀ·Σ·w (NOT volatility).
+
+    Note: opt_core.objective_min_variance returns volatility √(wᵀΣw); this returns
+    variance. Both share the same argmin but are not numerically interchangeable.
+    """
     w = np.asarray(weights, dtype=float)
     cov = _cov(cov_matrix)
     return float(w @ cov @ w)
