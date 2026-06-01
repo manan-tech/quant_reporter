@@ -216,3 +216,52 @@ def test_recommendation_to_text_is_string():
     rec = recommend(_prices(n=700), current_weights={"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}, **_OFF)
     txt = rec.to_text()
     assert isinstance(txt, str) and "RECOMMENDATION" in txt
+
+
+# --- Coverage hardening (deferred per-task review items) ---
+
+def test_rebalance_custom_cost_model_is_used():
+    seen = {}
+
+    def fake_cost(trades):
+        seen["n"] = len(trades)
+        return {"cost_frac": 0.0123}
+
+    plan = rebalance_trades({"AAA": 0.5, "BBB": 0.5}, {"AAA": 0.0, "BBB": 1.0},
+                            cost_model=fake_cost)
+    assert plan.est_cost == pytest.approx(0.0123)
+    assert seen["n"] == 2  # both executed deltas were passed to the injected model
+
+
+def test_rebalance_threshold_boundary_executes():
+    # |delta| exactly == threshold is NOT inside the band (strict <) -> executes.
+    # 0.25/0.5/0.75 are float-exact, so the boundary is unambiguous.
+    plan = rebalance_trades({"AAA": 0.5, "BBB": 0.5},
+                            {"AAA": 0.25, "BBB": 0.75}, threshold=0.25)
+    assert {o.ticker for o in plan.orders} == {"AAA", "BBB"}
+    assert plan.held == []
+
+
+def test_drawdown_breach_severity_and_evidence():
+    alerts = risk_alerts(_EQ, _prices(), max_drawdown_limit=1e-6, vol_target=99,
+                         max_weight=0.99, max_risk_contribution=0.99)
+    dd = [a for a in alerts if a.kind == "drawdown_breach"]
+    assert dd and dd[0].severity == "breach"
+    assert dd[0].evidence["metric"] == "max_drawdown"
+    assert dd[0].evidence["value"] < 0  # max_dd is a negative decimal
+
+
+def test_risk_contribution_concentration_fires():
+    # tiny risk-contribution cap, generous name cap -> only the rc sub-check fires
+    alerts = risk_alerts({"AAA": 0.8, "BBB": 0.1, "CCC": 0.1}, _prices(),
+                         vol_target=99, max_drawdown_limit=99,
+                         max_weight=0.99, max_risk_contribution=1e-6)
+    rc = [a for a in alerts if a.evidence.get("metric") == "risk_contribution"]
+    assert rc and rc[0].kind == "concentration" and rc[0].severity == "breach"
+    assert "asset" in rc[0].evidence
+
+
+def test_recommendation_to_text_includes_sections():
+    rec = recommend(_prices(n=700), current_weights={"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}, **_OFF)
+    txt = rec.to_text()
+    assert "Rebalance:" in txt and "Risk alerts:" in txt
