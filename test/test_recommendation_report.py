@@ -7,7 +7,7 @@ from quant_reporter.recommendation import recommend
 from quant_reporter.recommendation_report import (
     build_recommendation_section, create_recommendation_report,
 )
-from quant_reporter.strategy import backtest_many
+from quant_reporter.strategy import backtest, backtest_many
 from quant_reporter.strategies import equal_weight, risk_parity
 from conftest import make_synthetic_prices
 
@@ -52,9 +52,6 @@ def test_report_handles_missing_panels(tmp_path):
     create_recommendation_report(rec, path=path)
     html = open(path, encoding="utf-8").read()
     assert "No trades" in html and "No strategy comparison" in html
-
-
-from quant_reporter.strategy import backtest
 
 
 def test_backtest_report_embeds_recommendation(tmp_path):
