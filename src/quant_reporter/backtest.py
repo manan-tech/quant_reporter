@@ -173,6 +173,14 @@ def simulate_strategy(price_data, target_weights, cost_model=None, rebalance="M"
     """
     if isinstance(target_weights, pd.DataFrame):
         tickers = list(target_weights.columns)
+        missing = [t for t in tickers if t not in price_data.columns]
+        if missing:
+            raise ValueError(
+                f"target_weights references tickers absent from price_data: {missing}. "
+                f"Available columns: {list(price_data.columns)}."
+            )
+        if len(price_data.index) == 0:
+            raise ValueError("price_data is empty (no rows); cannot run a backtest.")
         prices = price_data[tickers]
         target_by_day = target_weights.reindex(prices.index, method="ffill")
         valid = target_by_day.dropna(how="all")
@@ -180,13 +188,36 @@ def simulate_strategy(price_data, target_weights, cost_model=None, rebalance="M"
             raise ValueError("schedule has no dates within price_data's range")
         prices = prices.loc[valid.index[0]:]
         target_by_day = target_by_day.loc[valid.index[0]:].fillna(0.0)
+        # Validate each schedule row sums to a positive value (long-biased required).
+        row_sums = target_by_day.sum(axis=1)
+        bad_rows = row_sums[row_sums <= 1e-8]
+        if not bad_rows.empty:
+            raise ValueError(
+                f"simulate_strategy requires net-positive (long-biased) weights; "
+                f"{len(bad_rows)} schedule row(s) sum to <= 0. Long-short / "
+                f"market-neutral books are unsupported by the sum-to-1 normalization."
+            )
         changed = target_by_day.diff().abs().sum(axis=1) > 1e-12
         changed.iloc[0] = True
         rebalance_days = set(target_by_day.index[changed])
     else:
         tickers = list(target_weights.keys())
+        missing = [t for t in tickers if t not in price_data.columns]
+        if missing:
+            raise ValueError(
+                f"target_weights references tickers absent from price_data: {missing}. "
+                f"Available columns: {list(price_data.columns)}."
+            )
+        if len(price_data.index) == 0:
+            raise ValueError("price_data is empty (no rows); cannot run a backtest.")
         prices = price_data[tickers]
         tw = pd.Series(target_weights, dtype=float).reindex(tickers).fillna(0.0)
+        if tw.sum() <= 1e-8:
+            raise ValueError(
+                "simulate_strategy requires net-positive (long-biased) weights; "
+                f"target_weights sums to {tw.sum():.6g}. Long-short / market-neutral "
+                "books are unsupported by the sum-to-1 normalization."
+            )
         target_by_day = pd.DataFrame(np.tile(tw.values, (len(prices), 1)),
                                      index=prices.index, columns=tickers)
         if rebalance is None:
@@ -228,7 +259,7 @@ def simulate_strategy(price_data, target_weights, cost_model=None, rebalance="M"
         value *= daily_cash
         cur = cur * (1.0 + r)
         s = cur.sum()
-        if s > 0:
+        if abs(s) > 1e-8:
             cur = cur / s
         if date in rebalance_days:
             tgt = target_by_day.loc[date].values.astype(float)

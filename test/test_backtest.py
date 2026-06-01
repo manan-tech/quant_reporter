@@ -81,3 +81,29 @@ def test_drawdown_stats_top_n_caps_episode_count():
                        index=pd.bdate_range("2021-01-01", periods=500))
     out = drawdown_stats(wealth, top_n=3)
     assert len(out["worst_drawdowns"]) <= 3
+
+
+def test_drawdown_episode_boundaries():
+    # Two drawdowns: one recovered, one ongoing at series end.
+    # [1.0, 0.9, 0.95, 1.0, 1.1, 1.0, 0.8, 0.85, 0.9, 0.95]
+    #      ^^^  ^^^   (recovered: peak=idx0, trough=idx1, recovery=idx3)
+    #                           ^^^  ^^^   ^^^   ^^^  (ongoing: peak=idx4, trough=idx6)
+    idx = pd.bdate_range("2022-01-03", periods=10)
+    wealth = pd.Series([1.0, 0.9, 0.95, 1.0, 1.1, 1.0, 0.8, 0.85, 0.9, 0.95], index=idx)
+    out = drawdown_stats(wealth, top_n=5)
+    wds = out["worst_drawdowns"]
+    assert len(wds) == 2
+    # worst_drawdowns sorted most-negative-first
+    assert wds[0]["depth"] < wds[1]["depth"]
+    # Ongoing episode (1.1 -> 0.8): depth = (0.8-1.1)/1.1, recovery_date=None
+    ongoing = wds[0]
+    assert ongoing["depth"] == pytest.approx((0.8 - 1.1) / 1.1, rel=1e-5)
+    assert ongoing["recovery_date"] is None
+    assert ongoing["peak_date"] == idx[4]
+    assert ongoing["trough_date"] == idx[6]
+    # Recovered episode (1.0 -> 0.9 -> 1.0): depth = (0.9-1.0)/1.0 = -0.1
+    recovered = wds[1]
+    assert recovered["depth"] == pytest.approx(-0.1, rel=1e-5)
+    assert recovered["recovery_date"] == idx[3]
+    assert recovered["peak_date"] == idx[0]
+    assert recovered["trough_date"] == idx[1]

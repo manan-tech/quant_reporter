@@ -73,6 +73,18 @@ def ledoit_wolf_covariance(returns, target="constant_correlation", periods_per_y
     """
     cols = list(returns.columns)
     X = returns.values.astype(float)
+    if X.shape[0] < 2:
+        raise ValueError(
+            f"ledoit_wolf_covariance requires at least 2 periods; got T={X.shape[0]}."
+        )
+    var = X.var(axis=0, ddof=1)
+    bad = [cols[i] for i, v in enumerate(var) if v < 1e-14 or not np.isfinite(v)]
+    if bad:
+        raise ValueError(
+            f"Zero or non-finite variance for asset(s) {bad}; cannot form "
+            "constant-correlation shrinkage target (division by zero in correlation). "
+            "Drop or floor these columns before estimation."
+        )
     S, Xc = _sample_cov(X)
 
     if target == "identity":

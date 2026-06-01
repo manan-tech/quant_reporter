@@ -20,30 +20,36 @@ def _moments(returns):
     return n, sr, g3, g4
 
 
-def _psr_from(sr, sr_star, n, g3, g4, periods_per_year=1):
-    """Probabilistic Sharpe Ratio from moments.
+def _psr_from(sr, sr_star_pp, n, g3, g4):
+    """PSR z-statistic — all quantities on the per-period basis.
 
-    The skew/kurtosis-adjusted standard error (Bailey & Lopez de Prado) is computed on
-    the per-period Sharpe; both the estimated Sharpe (``sr``) and the threshold
-    (``sr_star``) are annualized by ``sqrt(periods_per_year)`` before forming the
-    z-statistic, so a threshold expressed on the annualized basis is compared like-for-
-    like. ``periods_per_year=1`` recovers the raw per-period PSR.
+    ``sr`` and ``sr_star_pp`` are per-period Sharpe ratios. g3/g4 are
+    dimensionless per-period moments. The Bailey & Lopez de Prado (2012)
+    variance correction uses the raw per-period SR throughout so that the
+    numerator and denominator remain on a consistent basis.
     """
-    ann = np.sqrt(periods_per_year)
-    sr_a = sr * ann
     denom = np.sqrt(max(1.0 - g3 * sr + ((g4 - 1.0) / 4.0) * sr ** 2, 1e-12))
-    z = (sr_a - sr_star) * np.sqrt(n - 1) / denom
+    z = (sr - sr_star_pp) * np.sqrt(n - 1) / denom
     return float(stats.norm.cdf(z))
 
 
 def probabilistic_sharpe_ratio(returns, sr_threshold=0.0, periods_per_year=252):
-    """P(true annualized SR > sr_threshold). ``sr_threshold`` is on the annualized basis
-    (same units as the annualized Sharpe). Returns a float in [0,1] (0.5 if undefined)."""
+    """P(true annualized SR > sr_threshold). ``sr_threshold`` is on the annualized basis.
+
+    Internally converts the annualized threshold to the per-period basis before
+    computing the z-statistic, so both sides of the comparison are consistent.
+    Returns a float in [0,1] (nan if undefined — fewer than 3 observations or
+    zero/non-finite variance).
+
+    Scale-invariant property: at sr_threshold=0, the result is identical for all
+    values of periods_per_year (PSR is dimensionless at the zero threshold).
+    """
     m = _moments(returns)
     if m is None:
-        return 0.5
+        return float("nan")
     n, sr, g3, g4 = m
-    return _psr_from(sr, sr_threshold, n, g3, g4, periods_per_year)
+    sr_star_pp = sr_threshold / np.sqrt(periods_per_year)
+    return _psr_from(sr, sr_star_pp, n, g3, g4)
 
 
 def _expected_max_sr(n_trials, sr_var):
@@ -57,17 +63,19 @@ def _expected_max_sr(n_trials, sr_var):
 
 
 def deflated_sharpe_ratio(returns, n_trials, periods_per_year=252):
-    """PSR with the threshold set to the expected max SR across n_trials (single-series
-    approximation: cross-trial SR variance ~ the SR estimation variance). The deflation
-    threshold and PSR are on the annualized basis. Returns [0,1]."""
+    """PSR with the threshold set to the expected max SR across n_trials trials.
+
+    Uses the per-period SR estimation variance so the deflation threshold is on
+    the same per-period basis as the z-statistic denominator. Returns [0,1] (nan
+    if undefined)."""
     m = _moments(returns)
     if m is None:
-        return 0.5
+        return float("nan")
     n, sr, g3, g4 = m
-    # SR estimation variance on the annualized basis (matches the annualized z-stat).
-    sr_var = periods_per_year * (1.0 - g3 * sr + ((g4 - 1.0) / 4.0) * sr ** 2) / (n - 1)
-    sr_star = _expected_max_sr(n_trials, sr_var)
-    return _psr_from(sr, sr_star, n, g3, g4, periods_per_year)
+    # SR estimation variance on the per-period basis (Bailey & LdP eq. 10).
+    sr_var_pp = (1.0 - g3 * sr + ((g4 - 1.0) / 4.0) * sr ** 2) / (n - 1)
+    sr_star_pp = _expected_max_sr(n_trials, sr_var_pp)
+    return _psr_from(sr, sr_star_pp, n, g3, g4)
 
 
 def _sharpe_diff_pvalue(ra, rb):
@@ -121,5 +129,10 @@ def compare_strategies_oos(returns_dict, benchmark_returns=None, n_trials=None,
         for name in names:
             pvals[f"{name} vs Benchmark"] = _sharpe_diff_pvalue(returns_dict[name], benchmark_returns)
 
-    best = max(summary, key=lambda k: (summary[k]["dsr"] if np.isfinite(summary[k]["dsr"]) else -1))
+    if not summary:
+        return {"summary": {}, "sharpe_diff_pvalues": {}, "best_by_dsr": None}
+    # Only rank strategies whose Sharpe is defined (finite); degenerate series (nan
+    # sharpe / undefined PSR/DSR) are excluded from selection so they cannot win.
+    usable = [k for k in summary if np.isfinite(summary[k]["sharpe"])]
+    best = max(usable, key=lambda k: (summary[k]["dsr"] if np.isfinite(summary[k]["dsr"]) else float("-inf"))) if usable else None
     return {"summary": summary, "sharpe_diff_pvalues": pvals, "best_by_dsr": best}

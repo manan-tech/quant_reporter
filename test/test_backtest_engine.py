@@ -123,7 +123,62 @@ def test_simulate_initial_value_scales_wealth():
     w = {"AAA": 1.0}
     a = simulate_strategy(prices, w, rebalance=None, initial_value=1.0)["wealth"]
     b = simulate_strategy(prices, w, rebalance=None, initial_value=1000.0)["wealth"]
-    assert (b / a).round(6).nunique() == 1  # constant 1000x scaling
+    assert np.allclose(b.values, a.values * 1000.0, rtol=1e-9, atol=0.0)
+    assert a.iloc[0] == pytest.approx(1.0)
+    assert b.iloc[0] == pytest.approx(1000.0)
+
+
+def test_simulate_cash_drag_compounds_daily():
+    prices = _prices()
+    w = {"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}
+    base = simulate_strategy(prices, w, cost_model=None, rebalance=None, cash_drag=0.0)
+    drag = simulate_strategy(prices, w, cost_model=None, rebalance=None, cash_drag=0.02)
+    # drag applied on days 1..n-1 (not day 0), so exponent = len(prices)-1
+    expected_ratio = (1 - 0.02 / 252) ** (len(prices) - 1)
+    assert drag["wealth"].iloc[-1] / base["wealth"].iloc[-1] == pytest.approx(expected_ratio, rel=1e-12)
+
+
+def test_simulate_blotter_contents():
+    prices = _prices()
+    w = {"AAA": 0.4, "BBB": 0.3, "CCC": 0.3}
+    cm = functools.partial(transaction_cost_model, commission_bps=2, spread_bps=8)
+    res = simulate_strategy(prices, w, rebalance="M", cost_model=cm)
+    blotter = res["blotter"]
+    assert len(blotter) >= 1
+    for row in blotter:
+        assert set(row) == {"date", "turnover", "cost_frac"}
+    # day-0 entry: cash -> target, one-way turnover = 0.5*sum|deltas| = 0.5
+    assert blotter[0]["turnover"] == pytest.approx(0.5)
+    assert blotter[0]["cost_frac"] > 0
+    # blotter length matches n_rebalances (day-0 entry is included in both)
+    assert len(blotter) == res["summary"]["n_rebalances"]
+
+
+@pytest.mark.parametrize("freq", ["M", "Q", "Y"])
+def test_generate_rebalance_dates_parametrized(freq):
+    idx = pd.bdate_range("2020-01-01", periods=520)
+    dates = generate_rebalance_dates(idx, mode="calendar", freq=freq)
+    assert idx[0] in dates
+    assert len(dates) == idx.to_series().dt.to_period(freq).nunique()
+    assert dates.isin(idx).all()
+
+
+def test_simulate_missing_ticker_raises():
+    prices = _prices()
+    with pytest.raises(ValueError, match="absent from price_data"):
+        simulate_strategy(prices, {"AAA": 0.5, "ZZZ": 0.5})
+
+
+def test_simulate_empty_prices_raises():
+    prices = _prices().iloc[:0]
+    with pytest.raises(ValueError, match="empty"):
+        simulate_strategy(prices, {"AAA": 0.5, "BBB": 0.5})
+
+
+def test_simulate_net_zero_weights_raises():
+    prices = _prices()
+    with pytest.raises(ValueError, match="net-positive"):
+        simulate_strategy(prices, {"AAA": 0.5, "BBB": -0.5})
 
 
 from hypothesis import given, settings, strategies as st

@@ -100,6 +100,51 @@ def test_vol_target_zero_signal_zero_position():
     assert np.allclose(pos.fillna(0.0).values, 0.0)
 
 
+def test_vol_target_portfolio_cov_none_runs_and_caps():
+    r = _returns(n=400, seed=6)
+    signal = pd.DataFrame(1.0, index=r.index, columns=r.columns)
+    pos = volatility_target_positions(signal, r, target_vol=0.10, vol_lookback=63,
+                                      method="simple", max_leverage=2.0, scaling="portfolio")
+    tail = pos.dropna()
+    gross = tail.abs().sum(axis=1)
+    assert (gross <= 2.0 + 1e-9).all()
+    # First vol_lookback rows should be NaN (vol warmup; row 63 is first valid after shift).
+    assert pos.iloc[:63].isna().all(axis=None)
+
+
+def test_vol_target_portfolio_cov_given_golden():
+    r = _returns(n=400, seed=7)
+    signal = pd.DataFrame(1.0, index=r.index, columns=r.columns)
+    # Diagonal annualized cov: AAA var=0.04, BBB var=0.16
+    cov = pd.DataFrame([[0.04, 0.0], [0.0, 0.16]], index=["AAA", "BBB"], columns=["AAA", "BBB"])
+    pos = volatility_target_positions(signal, r, target_vol=0.10, vol_lookback=63,
+                                      method="simple", max_leverage=10.0,
+                                      scaling="portfolio", cov=cov)
+    # cov-given branch uses a fixed cov, so scale is target_vol / sqrt(w^T cov w)
+    # For unit signal and diagonal cov: portfolio_var = sum(|w| * diag(cov) * |w|) = 0.04+0.16=0.20
+    # scale = 0.10 / sqrt(0.20); so each position ~= 0.10/sqrt(0.20)
+    expected_pos = 0.10 / np.sqrt(0.20)
+    valid = pos.dropna()
+    assert not valid.empty
+    assert np.allclose(valid.values, expected_pos, rtol=0.01)
+
+
+@settings(max_examples=20, deadline=None)
+@given(cut=st.integers(min_value=90, max_value=160))
+def test_vol_target_portfolio_causal_under_future_shuffle(cut):
+    r = _returns(n=200, seed=12)
+    signal = pd.DataFrame(1.0, index=r.index, columns=r.columns)
+    base = volatility_target_positions(signal, r, target_vol=0.1, vol_lookback=40,
+                                       method="simple", scaling="portfolio")
+    shuffled = r.copy()
+    rng = np.random.default_rng(88)
+    tail_idx = np.arange(cut + 1, len(r))
+    shuffled.iloc[cut + 1:] = r.iloc[rng.permutation(tail_idx)].values
+    shuf = volatility_target_positions(signal, shuffled, target_vol=0.1, vol_lookback=40,
+                                       method="simple", scaling="portfolio")
+    pd.testing.assert_frame_equal(base.iloc[: cut + 1], shuf.iloc[: cut + 1])
+
+
 @settings(max_examples=25, deadline=None)
 @given(cut=st.integers(min_value=90, max_value=160))
 def test_vol_target_positions_causal_under_future_shuffle(cut):
