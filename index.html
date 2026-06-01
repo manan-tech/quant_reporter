@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>quant_reporter — example report gallery</title>
+<style>
+ body { font-family:-apple-system,system-ui,sans-serif; background:#0f172a; color:#e2e8f0; margin:0; }
+ header { padding:3rem 1.5rem 2rem; max-width:900px; margin:0 auto; }
+ header h1 { font-size:1.8rem; margin:0 0 .5rem; }
+ header p { color:#94a3b8; max-width:62ch; }
+ header code { background:#1e293b; padding:.15rem .45rem; border-radius:4px; }
+ .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:1rem; max-width:900px; margin:0 auto; padding:0 1.5rem 3rem; }
+ .card { display:block; background:#1e293b; border:1px solid #334155; border-radius:12px; padding:1.3rem; text-decoration:none; color:inherit; transition:.15s; }
+ .card:hover { border-color:#38bdf8; transform:translateY(-2px); }
+ .card.disabled { opacity:.5; }
+ .card h2 { font-size:1.1rem; margin:0 0 .4rem; }
+ .blurb { color:#94a3b8; font-size:.9rem; margin:0 0 .7rem; }
+ .tickers { font-family:monospace; font-size:.78rem; color:#64748b; margin:0 0 1rem; }
+ .cta { color:#38bdf8; font-weight:600; font-size:.9rem; }
+ .cta.err { color:#f87171; }
+ footer { text-align:center; color:#64748b; font-size:.8rem; padding:2rem; }
+ footer a { color:#38bdf8; }
+</style></head>
+<body>
+<header>
+  <h1>quant_reporter — example reports</h1>
+  <p>Interactive, multi-page portfolio analytics generated with a single function call.
+  Install with <code>pip install quant-reporter</code> and reproduce any of these in a few lines.</p>
+</header>
+<div class="grid"><a class="card" href="60-40.html"><h2>Classic 60/40</h2><p class="blurb">The textbook balanced portfolio: 60% US equities, 40% US bonds.</p><p class="tickers">SPY, AGG</p><span class="cta">View report &rarr;</span></a><a class="card" href="all-weather.html"><h2>All-Weather (Ray Dalio)</h2><p class="blurb">Dalio's risk-balanced mix across stocks, long & intermediate bonds, gold, and commodities.</p><p class="tickers">VTI, TLT, IEI, GLD, DBC</p><span class="cta">View report &rarr;</span></a><a class="card" href="magnificent-7.html"><h2>Magnificent 7</h2><p class="blurb">The mega-cap tech basket — a vivid demo of concentration risk and factor exposure.</p><p class="tickers">AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA</p><span class="cta">View report &rarr;</span></a><a class="card" href="bogleheads-3-fund.html"><h2>Bogleheads 3-Fund</h2><p class="blurb">The classic low-cost index trio: total US, total international, total bond.</p><p class="tickers">VTI, VXUS, BND</p><span class="cta">View report &rarr;</span></a></div>
+<footer>Generated with quant_reporter &middot; <a href="https://github.com/manan-tech/quant_reporter">GitHub</a></footer>
+</body></html>
