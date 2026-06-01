@@ -158,15 +158,18 @@ def _assemble_context(price_data_full: pd.DataFrame,
     if display_names:
         price_data_full.rename(columns=display_names, inplace=True)
 
-    # Standardize column order (assets first, then benchmark) and drop missing
-    ordered_cols = friendly_tickers + [friendly_benchmark]
+    # Standardize column order (assets first, then benchmark) and drop missing.
+    # Append the benchmark only if it isn't already a holding — otherwise its
+    # column is duplicated (e.g. a 60/40 of SPY+AGG benchmarked against SPY),
+    # which inflates the asset count and breaks every weights-vs-assets op.
+    ordered_cols = friendly_tickers + ([friendly_benchmark] if friendly_benchmark not in friendly_tickers else [])
     missing_cols = [c for c in ordered_cols if c not in price_data_full.columns]
     if missing_cols:
         logger.warning(f"Warning: these tickers returned no data and will be dropped: {missing_cols}")
         friendly_tickers = [t for t in friendly_tickers if t not in missing_cols]
         if friendly_benchmark in missing_cols:
             raise ValueError(f"Benchmark ticker {friendly_benchmark} failed to download. Cannot proceed.")
-        ordered_cols = friendly_tickers + [friendly_benchmark]
+        ordered_cols = friendly_tickers + ([friendly_benchmark] if friendly_benchmark not in friendly_tickers else [])
 
         # Update weights to handle dropped assets
         valid_tickers_original = (

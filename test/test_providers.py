@@ -124,6 +124,36 @@ def test_report_generator_threads_provider_offline():
     assert any(c[0] == "get_prices" for c in mp.calls)
 
 
+def test_portfolio_report_when_benchmark_is_a_holding():
+    """Regression: a portfolio benchmarked against one of its own holdings (60/40
+    style) must render fully, not fail with a duplicate-'SPY'-column error in the
+    constituents plot."""
+    mp = MockProvider()
+    out = os.path.join(tempfile.mkdtemp(), "p.html")
+    qr.create_portfolio_report(
+        {"AAPL": 0.6, "MSFT": 0.4}, "AAPL",   # benchmark AAPL is also a holding
+        "2020-06-01", "2022-06-01",
+        filename=out, data_provider=mp,
+    )
+    assert os.path.exists(out)
+    # A rendered report is hundreds of KB of Plotly; a failed husk is a few KB.
+    assert os.path.getsize(out) > 100_000
+
+
+def test_combined_report_threads_provider_offline():
+    """The flagship combined report must also honour data_provider (it has an
+    explicit signature, not **kwargs — regression guard for that wiring gap)."""
+    mp = MockProvider()
+    out = os.path.join(tempfile.mkdtemp(), "combined.html")
+    qr.create_combined_report(
+        {"AAPL": 0.5, "MSFT": 0.5}, "SPY",
+        "2020-06-01", "2022-06-01",
+        filename=out, data_provider=mp, num_simulations=100,
+    )
+    assert os.path.exists(out)
+    assert any(c[0] == "get_prices" for c in mp.calls)
+
+
 def test_build_context_from_prices_records_provider():
     mp = MockProvider()
     prices = mp.get_prices(["AAPL", "MSFT", "SPY"], None, None)

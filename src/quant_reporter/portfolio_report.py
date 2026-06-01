@@ -170,14 +170,14 @@ def compute_portfolio_analysis(ctx: ReportContext):
     constituent_daily = constituent_prices.pct_change().dropna()
     constituent_growth = (1 + constituent_daily).cumprod()
 
-    all_cumulative_returns = pd.concat(
-        [
-            portfolio_growth.rename("Portfolio"),
-            constituent_growth,
-            benchmark_growth.rename(ctx.friendly_benchmark),
-        ],
-        axis=1,
-    ).dropna(how="all")
+    # The benchmark may already be one of the holdings (e.g. a 60/40 of SPY+AGG
+    # benchmarked against SPY). In that case its growth line is already present
+    # as a constituent column, so don't concat a duplicate (Plotly rejects
+    # duplicate column names).
+    frames = [portfolio_growth.rename("Portfolio"), constituent_growth]
+    if ctx.friendly_benchmark not in constituent_growth.columns:
+        frames.append(benchmark_growth.rename(ctx.friendly_benchmark))
+    all_cumulative_returns = pd.concat(frames, axis=1).dropna(how="all")
 
     constituent_content = [
         {

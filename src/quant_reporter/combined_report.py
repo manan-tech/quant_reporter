@@ -203,6 +203,7 @@ def create_combined_report(
     time_horizon=252,
     initial_investment=10000,
     seed=42,
+    data_provider=None,
 ):
     """
     Generates a single, combined HTML report for portfolio analysis,
@@ -237,6 +238,7 @@ def create_combined_report(
             rebalance_freq=rebalance_freq,
             denoise_cov=denoise_cov,
             n_components=n_components,
+            data_provider=data_provider,
         )
     except Exception as e:
         logger.error(f"Failed to build analysis context: {e}")
