@@ -12,7 +12,7 @@ import logging
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
-from scipy.cluster.hierarchy import linkage, dendrogram
+from scipy.cluster.hierarchy import linkage
 from scipy.spatial.distance import squareform
 from typing import Optional, Tuple, Dict, Any
 

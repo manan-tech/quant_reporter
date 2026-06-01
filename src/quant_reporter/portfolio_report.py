@@ -1,47 +1,36 @@
 import logging
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-import plotly.express as px
 
 logger = logging.getLogger(__name__)
 
 from .report_context import ReportContext, build_context
-from .metrics import calculate_metrics
+from .analytics import format_metrics
 from .plotting import (
-    plot_cumulative_returns, 
-    plot_rolling_volatility, 
-    plot_regression, 
-    plot_rolling_sharpe, 
+    plot_cumulative_returns,
+    plot_rolling_volatility,
+    plot_regression,
+    plot_rolling_sharpe,
     plot_monthly_distribution,
     plot_yearly_returns
 )
-from .opt_plotting import plot_portfolio_vs_constituents, plot_drawdown_comparison
+from .opt_plotting import (
+    plot_portfolio_vs_constituents,
+    plot_correlation_heatmap,
+)
 from .html_builder import generate_html_report
-from .opt_core import get_portfolio_price
 
-def plot_correlation_heatmap(log_returns):
-    """
-    Generates a Plotly heatmap of the asset correlation matrix.
-    """
-    logger.debug("Plotting Correlation Heatmap for Portfolio Constituents...")
-    corr_matrix = log_returns.corr()
-    fig = px.imshow(
-        corr_matrix, text_auto=".2f",
-        color_continuous_scale='RdYlGn', title='Constituent Correlation Heatmap'
-    )
-    fig.update_layout(template='plotly_white')
-    return fig
 
-def plot_drawdown(cumulative_returns, name):
+def _plot_drawdown_from_curve(drawdown_curve, name):
     """
-    Plots the drawdown 'underwater' curve for the portfolio.
+    Plots the drawdown 'underwater' curve for the portfolio using a pre-computed curve.
+    The curve is sourced from ctx.analytics.drawdown.curve so it is consistent with
+    the rest of the report.
     """
-    peak = cumulative_returns.cummax()
-    drawdown = (cumulative_returns - peak) / peak
-    
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=drawdown.index, y=drawdown, name=name,
+        x=drawdown_curve.index, y=drawdown_curve, name=name,
         mode='lines', fill='tozeroy', line=dict(color='red')
     ))
     fig.update_layout(
@@ -51,80 +40,145 @@ def plot_drawdown(cumulative_returns, name):
     )
     return fig
 
+
+def _titled(fig, title):
+    """Return fig with its layout title updated (non-mutating wrapper)."""
+    fig.update_layout(title=title)
+    return fig
+
+
+def _build_plot_data(ctx):
+    """
+    Assemble the plot_data dict expected by the shared plotting helpers, sourcing
+    Portfolio and Benchmark series from ctx.analytics (the single-source core).
+    Per-constituent series are still derived from raw price data.
+    """
+    # Portfolio & Benchmark daily returns / growth from the analytics core
+    core_daily = ctx.analytics.returns.daily   # cols: ['Portfolio', 'Benchmark']
+    core_growth = ctx.analytics.returns.growth  # cols: ['Portfolio', 'Benchmark']
+
+    # Rename to 'Asset'/'Benchmark' for the legacy plotting helpers
+    daily_returns_df = core_daily.rename(columns={"Portfolio": "Asset"})
+    cumulative_returns_df = core_growth.rename(columns={"Portfolio": "Asset"})
+
+    asset_daily = daily_returns_df["Asset"]
+    rfr_daily = ctx.risk_free_rate / 252
+    excess = asset_daily - rfr_daily
+
+    rolling_sharpe = (
+        (excess.rolling(window=60).mean() * 252)
+        / (excess.rolling(window=60).std() * np.sqrt(252))
+    )
+
+    monthly_returns = (
+        cumulative_returns_df["Asset"]
+        .resample("ME")
+        .last()
+        .pct_change()
+        .dropna()
+    )
+
+    # Yearly returns need Asset + Benchmark columns
+    asset_growth = cumulative_returns_df["Asset"]
+    bench_growth = cumulative_returns_df["Benchmark"]
+    growth_for_yearly = pd.concat(
+        [asset_growth.rename("Asset"), bench_growth.rename("Benchmark")], axis=1
+    )
+    yearly_returns = (
+        growth_for_yearly
+        .resample("YE")
+        .last()
+        .pct_change()
+        .dropna()
+    )
+
+    return {
+        "daily_returns": daily_returns_df,
+        "cumulative_returns": cumulative_returns_df,
+        "monthly_returns": monthly_returns,
+        "rolling_sharpe": rolling_sharpe,
+        "yearly_returns": yearly_returns,
+    }
+
+
 def compute_portfolio_analysis(ctx: ReportContext):
     """
     Computes analysis explicitly for the portfolio vs benchmark report.
+    Numbers are sourced from ctx.analytics (the single-source analytics core);
+    no inline recomputation of Portfolio/Benchmark returns, drawdown, or metrics.
     """
     logger.info("Computing Portfolio Analysis...")
-    
-    # Calculate Portfolio Prices
-    portfolio_prices = get_portfolio_price(
-        ctx.price_data_full[ctx.friendly_tickers], 
-        ctx.user_friendly_weights
-    )
-    
-    # Add Portfolio to price_data temporarily for calculate_metrics
-    eval_data = ctx.price_data_full.copy()
-    eval_data['Portfolio'] = portfolio_prices
-    
-    # Generate Metrics and Base Plot Data
-    metrics, plot_data = calculate_metrics(
-        eval_data, 'Portfolio', ctx.friendly_benchmark, ctx.risk_free_rate
-    )
-    
-    daily_returns_df = plot_data['daily_returns']
-    cumulative_returns_df = plot_data['cumulative_returns']
-    
+
+    # --- Metrics dashboard from the analytics core ---
+    metrics = format_metrics(ctx.analytics.metrics)
+
     sidebar_items = [
         {"title": "Risk & Return Dashboard", "type": "metrics", "data": metrics}
     ]
-    
+
+    # --- Build plot_data for shared plotting helpers ---
+    plot_data = _build_plot_data(ctx)
+
+    # --- Drawdown: use pre-computed curve from ctx.analytics ---
+    drawdown_curve = ctx.analytics.drawdown.curve
+
     # Standard Portfolio vs Benchmark content
     main_content = [
         {
-            "title": "Cumulative Returns", 
-            "type": "plot", 
+            "title": "Cumulative Returns",
+            "type": "plot",
             "data": plot_cumulative_returns(plot_data, 'Portfolio', ctx.friendly_benchmark)
         },
         {
-            "title": "Annual Returns", 
-            "type": "plot", 
+            "title": "Annual Returns",
+            "type": "plot",
             "data": plot_yearly_returns(plot_data, 'Portfolio', ctx.friendly_benchmark)
         },
         {
             "title": "Drawdown Analysis",
             "type": "plot",
-            "data": plot_drawdown(cumulative_returns_df['Asset'], "Portfolio")
+            "data": _plot_drawdown_from_curve(drawdown_curve, "Portfolio")
         },
         {
-            "title": "Rolling Volatility", 
-            "type": "plot", 
+            "title": "Rolling Volatility",
+            "type": "plot",
             "data": plot_rolling_volatility(plot_data, 'Portfolio', ctx.friendly_benchmark)
         },
         {
-            "title": "Rolling Sharpe Ratio", 
-            "type": "plot", 
+            "title": "Rolling Sharpe Ratio",
+            "type": "plot",
             "data": plot_rolling_sharpe(plot_data, 'Portfolio')
         },
         {
-            "title": "Alpha/Beta Regression", 
-            "type": "plot", 
+            "title": "Alpha/Beta Regression",
+            "type": "plot",
             "data": plot_regression(plot_data, metrics, 'Portfolio', ctx.friendly_benchmark)
         },
         {
-            "title": "Monthly Returns Distribution", 
-            "type": "plot", 
+            "title": "Monthly Returns Distribution",
+            "type": "plot",
             "data": plot_monthly_distribution(plot_data, 'Portfolio')
         },
     ]
 
-    # Constituent Analysis Block
-    tickers_to_plot = ['Portfolio'] + ctx.friendly_tickers + [ctx.friendly_benchmark]
-    tickers_to_plot = [t for t in tickers_to_plot if t in eval_data.columns]
-    
-    all_daily_returns = eval_data[tickers_to_plot].pct_change().dropna()
-    all_cumulative_returns = (1 + all_daily_returns).cumprod()
-    
+    # --- Constituent Analysis Block ---
+    # Portfolio & Benchmark growth come from the core; per-constituent from price data
+    portfolio_growth = ctx.analytics.returns.growth["Portfolio"]
+    benchmark_growth = ctx.analytics.returns.growth["Benchmark"]
+
+    constituent_prices = ctx.price_data_full[ctx.friendly_tickers]
+    constituent_daily = constituent_prices.pct_change().dropna()
+    constituent_growth = (1 + constituent_daily).cumprod()
+
+    all_cumulative_returns = pd.concat(
+        [
+            portfolio_growth.rename("Portfolio"),
+            constituent_growth,
+            benchmark_growth.rename(ctx.friendly_benchmark),
+        ],
+        axis=1,
+    ).dropna(how="all")
+
     constituent_content = [
         {
             "title": "Portfolio vs. Constituent Performance",
@@ -132,12 +186,15 @@ def compute_portfolio_analysis(ctx: ReportContext):
             "data": plot_portfolio_vs_constituents(all_cumulative_returns)
         },
         {
-            "title": "Constituent Correlation",
+            "title": "Constituent Correlation (train period)",
             "type": "plot",
-            "data": plot_correlation_heatmap(ctx.log_returns)
+            "data": _titled(
+                plot_correlation_heatmap(ctx.log_returns),
+                "Constituent Correlation Heatmap (train period)"
+            )
         }
     ]
-    
+
     sections = [
         {
             "title": "Portfolio Performance Summary",
@@ -151,7 +208,7 @@ def compute_portfolio_analysis(ctx: ReportContext):
             "main_content": constituent_content
         }
     ]
-    
+
     return sections
 
 def create_portfolio_report(portfolio_dict, benchmark_ticker, train_start, train_end, 

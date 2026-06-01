@@ -8,28 +8,51 @@ expected returns and covariance.
 import logging
 import numpy as np
 import pandas as pd
-import yfinance as yf
 
 logger = logging.getLogger(__name__)
 
 
-def get_market_caps(tickers):
+def get_market_caps(tickers, provider=None):
     """
-    Fetches market capitalizations for the given tickers using yfinance.
-    Returns a pandas Series indexed by ticker.
+    Fetches market capitalizations for the given tickers.
+
+    Market caps sit outside the core :class:`DataProvider` protocol (which covers
+    prices + risk-free rate). Resolution order:
+
+    1. If *provider* implements an optional ``get_market_caps(tickers)`` method,
+       it is used (read a CSV/Bloomberg to keep Black-Litterman fully offline).
+    2. Else, if no provider or the default yfinance provider is active, fall back
+       to yfinance.
+    3. Else (a *custom* provider is active but cannot supply market caps), raise
+       a clear error rather than silently making a live yfinance network call —
+       honouring the offline promise a custom DataProvider implies.
     """
     logger.info("Fetching market caps for Black-Litterman model: %s", tickers)
-    caps = {}
-    for t in tickers:
-        try:
-            info = yf.Ticker(t).info
-            cap = info.get('marketCap')
-            if cap is not None:
-                caps[t] = float(cap)
-        except Exception as e:
-            logger.warning("Could not fetch market cap for %s: %s", t, e)
-            
-    s_caps = pd.Series(caps)
+
+    if provider is not None and hasattr(provider, "get_market_caps"):
+        s_caps = pd.Series(provider.get_market_caps(tickers))
+    else:
+        from .providers import YFinanceProvider
+        if provider is not None and not isinstance(provider, YFinanceProvider):
+            raise ValueError(
+                "Black-Litterman requires market caps, but the active DataProvider "
+                f"({type(provider).__name__}) does not implement get_market_caps(tickers). "
+                "Add a get_market_caps method to your provider, or omit Black-Litterman "
+                "views (bl_views / bl_relative_views). Refusing to silently fetch from "
+                "yfinance because a custom (non-yfinance) provider is in use."
+            )
+        caps = {}
+        for t in tickers:
+            try:
+                import yfinance as yf
+                info = yf.Ticker(t).info
+                cap = info.get('marketCap')
+                if cap is not None:
+                    caps[t] = float(cap)
+            except Exception as e:
+                logger.warning("Could not fetch market cap for %s: %s", t, e)
+        s_caps = pd.Series(caps)
+
     missing = set(tickers) - set(s_caps.index)
     
     if missing:

@@ -1,5 +1,4 @@
 import plotly.graph_objects as go
-import pandas as pd
 
 def plot_factor_portfolio_growth(portfolio_returns, portfolio_name):
     cumulative_returns = (1 + portfolio_returns).cumprod()

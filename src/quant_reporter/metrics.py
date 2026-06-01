@@ -1,12 +1,24 @@
 import pandas as pd
 import numpy as np
-from scipy import stats
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class DrawdownResult:
+    curve: pd.Series
+    max_dd: float
+
+
+def compute_drawdown(cumulative_returns):
+    """Underwater curve + scalar max drawdown from one cumulative (Growth-of-$1) series."""
+    peak = cumulative_returns.cummax()
+    curve = (cumulative_returns - peak) / peak
+    return DrawdownResult(curve=curve, max_dd=float(curve.min()))
+
 
 def calculate_max_drawdown(cumulative_returns):
-    """Calculates the max drawdown from a cumulative returns series."""
-    peak = cumulative_returns.cummax()
-    drawdown = (cumulative_returns - peak) / peak
-    return drawdown.min()
+    """Backward-compatible scalar max drawdown (delegates to compute_drawdown)."""
+    return compute_drawdown(cumulative_returns).max_dd
 
 def calculate_sortino_ratio(daily_returns, risk_free_rate=0.02):
     """Calculates the annualized Sortino Ratio."""
@@ -29,98 +41,210 @@ def calculate_var_cvar(daily_returns, confidence_level=0.95):
         return np.nan, np.nan
     var = daily_returns.quantile(1 - confidence_level)
     cvar = daily_returns[daily_returns <= var].mean()
-    
+
     return var, cvar
 
-def calculate_metrics(data, asset_col, benchmark_col, risk_free_rate=0.02):
-    """
-    Calculates key performance and risk metrics for a single asset against a benchmark.
-    """
-    if asset_col not in data.columns or benchmark_col not in data.columns:
-        raise ValueError(f"Columns '{asset_col}' or '{benchmark_col}' not in DataFrame.")
-        
-    # --- 1. Prepare Returns Data ---
-    asset_prices = data[asset_col]
-    benchmark_prices = data[benchmark_col]
 
-    asset_returns_raw = asset_prices.pct_change()
-    benchmark_returns_raw = benchmark_prices.pct_change()
-    
-    daily_returns_df = pd.DataFrame({
-        'Asset': asset_returns_raw,
-        'Benchmark': benchmark_returns_raw
-    }).dropna()
-    
-    daily_returns = daily_returns_df['Asset']
-    
-    cumulative_returns_df = (1 + daily_returns_df).cumprod()
-    cumulative_returns = cumulative_returns_df['Asset']
-    
-    log_returns_data = data[[asset_col, benchmark_col]].copy()
-    log_returns = np.log(log_returns_data / log_returns_data.shift(1)).dropna()
-    log_returns.columns = ['Asset', 'Benchmark'] # Standardize
+# ---------------------------------------------------------------------------
+# SP-Strategy: consolidated measurement surface.
+# All functions take SIMPLE periodic returns and return plain floats.
+# Edge cases (empty / single-obs / zero-vol) return NaN (or 0.0), never raise.
+# ---------------------------------------------------------------------------
+TRADING_DAYS = 252
 
-    monthly_returns = asset_prices.resample('ME').last().pct_change().dropna()
-    
-    # --- 2. Calculations ---
-    asset_vol = daily_returns.std() * np.sqrt(252)
-    bench_vol = daily_returns_df['Benchmark'].std() * np.sqrt(252)
-    
-    if daily_returns_df['Benchmark'].std() == 0 or daily_returns.std() == 0:
-        beta = 0.0
-        alpha = 0.0
-    else:
-        lin_reg = stats.linregress(daily_returns_df['Benchmark'], daily_returns)
-        beta = lin_reg.slope
-        alpha = lin_reg.intercept * 252 # Annualize
 
-    total_days = (asset_prices.index[-1] - asset_prices.index[0]).days
-    years = max(total_days / 365.25, 1)
-    
-    cagr_asset = (asset_prices.iloc[-1] / asset_prices.iloc[0])**(1/years) - 1
-    cagr_bench = (benchmark_prices.iloc[-1] / benchmark_prices.iloc[0])**(1/years) - 1
-    
-    excess_returns = daily_returns - (risk_free_rate / 252)
-    sharpe_ratio = (excess_returns.mean() * 252) / (excess_returns.std() * np.sqrt(252)) if excess_returns.std() != 0 else 0
-    sortino_ratio = calculate_sortino_ratio(daily_returns, risk_free_rate)
-    max_drawdown = calculate_max_drawdown(cumulative_returns)
-    
-    calmar_ratio = cagr_asset / abs(max_drawdown) if max_drawdown != 0 else np.nan
-    skew = daily_returns.skew()
-    kurtosis = daily_returns.kurtosis()
-    
-    var_95, cvar_95 = calculate_var_cvar(daily_returns, confidence_level=0.95)
-    
-    rolling_sharpe = (excess_returns.rolling(window=60).mean() * 252) / (excess_returns.rolling(window=60).std() * np.sqrt(252))
+def _series(returns):
+    return pd.Series(returns).dropna()
 
-    yearly_prices = data[[asset_col, benchmark_col]].resample('YE').last()
-    yearly_returns = yearly_prices.pct_change().dropna()
-    yearly_returns.columns = ['Asset', 'Benchmark'] # Standardize
-    
-    metrics = {
-        "CAGR (Asset)": f"{cagr_asset:.2%}",
-        "CAGR (Benchmark)": f"{cagr_bench:.2%}",
-        "Annualized Volatility (Asset)": f"{asset_vol:.2%}",
-        "Annualized Volatility (Bench)": f"{bench_vol:.2%}",
-        "Sharpe Ratio (Asset)": f"{sharpe_ratio:.2f}",
-        "Sortino Ratio (Asset)": f"{sortino_ratio:.2f}",
-        "Calmar Ratio (Asset)": f"{calmar_ratio:.2f}",
-        "Max Drawdown": f"{max_drawdown:.2%}",
-        "Beta (vs Benchmark)": f"{beta:.2f}",
-        "Alpha (Annualized)": f"{alpha:.2%}",
-        "Skew": f"{skew:.2f}",
-        "Kurtosis": f"{kurtosis:.2f}",
-        "VaR (95%)": f"{var_95:.2%}",
-        "CVaR (95%)": f"{cvar_95:.2%}"
+
+def _underwater(returns):
+    r = _series(returns)
+    if len(r) == 0:
+        return pd.Series([], dtype=float)
+    growth = pd.concat([pd.Series([1.0]), (1.0 + r).cumprod().reset_index(drop=True)],
+                       ignore_index=True)
+    peak = growth.cummax()
+    uw = (growth - peak) / peak
+    return uw.iloc[1:]   # drop the synthetic starting row
+
+
+def cagr(returns, periods_per_year=TRADING_DAYS):
+    r = _series(returns)
+    if len(r) == 0:
+        return float("nan")
+    growth = float((1.0 + r).prod())
+    if growth <= 0:
+        return float("nan")
+    years = len(r) / periods_per_year
+    return float(growth ** (1.0 / years) - 1.0)
+
+
+def annual_volatility(returns, periods_per_year=TRADING_DAYS):
+    r = _series(returns)
+    if len(r) < 2:
+        return float("nan")
+    return float(r.std(ddof=1) * np.sqrt(periods_per_year))
+
+
+def sharpe(returns, risk_free_rate=0.0, periods_per_year=TRADING_DAYS):
+    r = _series(returns)
+    if len(r) < 2:
+        return float("nan")
+    excess = r - risk_free_rate / periods_per_year
+    sd = excess.std(ddof=1)
+    if sd == 0 or not np.isfinite(sd):
+        return float("nan")
+    return float(excess.mean() / sd * np.sqrt(periods_per_year))
+
+
+def downside_deviation(returns, mar=0.0, periods_per_year=TRADING_DAYS):
+    r = _series(returns)
+    if len(r) < 1:
+        return float("nan")
+    downside = r[r < mar] - mar
+    if len(downside) < 1:
+        return float("nan")
+    # Divide by total N (semi-deviation), not just downside obs count,
+    # so that downside_deviation <= annual_volatility always holds.
+    return float(np.sqrt((downside ** 2).sum() / len(r)) * np.sqrt(periods_per_year))
+
+
+def sortino(returns, risk_free_rate=0.0, periods_per_year=TRADING_DAYS):
+    r = _series(returns)
+    if len(r) < 2:
+        return float("nan")
+    dd = downside_deviation(r, mar=risk_free_rate / periods_per_year,
+                            periods_per_year=periods_per_year)
+    if dd == 0 or not np.isfinite(dd):
+        return float("nan")
+    excess_ann = (r.mean() - risk_free_rate / periods_per_year) * periods_per_year
+    return float(excess_ann / dd)
+
+
+def max_drawdown(returns):
+    uw = _underwater(returns)
+    return float(uw.min()) if len(uw) else float("nan")
+
+
+def avg_drawdown(returns):
+    uw = _underwater(returns)
+    dd = uw[uw < 0]
+    return float(dd.mean()) if len(dd) else 0.0
+
+
+def ulcer_index(returns):
+    uw = _underwater(returns)
+    return float(np.sqrt((uw ** 2).mean())) if len(uw) else float("nan")
+
+
+def calmar(returns, periods_per_year=TRADING_DAYS):
+    mdd = max_drawdown(returns)
+    if mdd == 0 or not np.isfinite(mdd):
+        return float("nan")
+    return float(cagr(returns, periods_per_year) / abs(mdd))
+
+
+def value_at_risk(returns, confidence=0.95):
+    r = _series(returns)
+    if len(r) < 2:
+        return float("nan")
+    return float(-r.quantile(1.0 - confidence))
+
+
+def conditional_var(returns, confidence=0.95):
+    r = _series(returns)
+    if len(r) < 2:
+        return float("nan")
+    threshold = r.quantile(1.0 - confidence)
+    tail = r[r <= threshold]
+    return float(-tail.mean()) if len(tail) else float("nan")
+
+
+def omega(returns, threshold=0.0):
+    r = _series(returns)
+    excess = r - threshold
+    gains = float(excess[excess > 0].sum())
+    losses = float(-excess[excess < 0].sum())
+    if losses == 0:
+        return float("nan")
+    return float(gains / losses)
+
+
+def hit_rate(returns):
+    r = _series(returns)
+    return float((r > 0).mean()) if len(r) else float("nan")
+
+
+def win_loss_ratio(returns):
+    r = _series(returns)
+    wins, losses = r[r > 0], r[r < 0]
+    if len(wins) == 0 or len(losses) == 0:
+        return float("nan")
+    return float(wins.mean() / abs(losses.mean()))
+
+
+def tail_ratio(returns):
+    r = _series(returns)
+    if len(r) < 2:
+        return float("nan")
+    left = abs(r.quantile(0.05))
+    if left == 0:
+        return float("nan")
+    return float(abs(r.quantile(0.95)) / left)
+
+
+def tracking_error(returns, benchmark, periods_per_year=TRADING_DAYS):
+    active = (pd.Series(returns) - pd.Series(benchmark)).dropna()
+    if len(active) < 2:
+        return float("nan")
+    return float(active.std(ddof=1) * np.sqrt(periods_per_year))
+
+
+def information_ratio(returns, benchmark, periods_per_year=TRADING_DAYS):
+    active = (pd.Series(returns) - pd.Series(benchmark)).dropna()
+    if len(active) < 2:
+        return float("nan")
+    sd = active.std(ddof=1)
+    if sd == 0 or not np.isfinite(sd):
+        return float("nan")
+    return float(active.mean() / sd * np.sqrt(periods_per_year))
+
+
+def skewness(returns):
+    r = _series(returns)
+    return float(r.skew()) if len(r) >= 3 else float("nan")
+
+
+def kurtosis(returns):
+    r = _series(returns)
+    return float(r.kurtosis()) if len(r) >= 4 else float("nan")
+
+
+def summary_metrics(returns, benchmark=None, risk_free_rate=0.02,
+                    periods_per_year=TRADING_DAYS):
+    """Ordered, named metric dict the backtest report consumes."""
+    r = _series(returns)
+    out = {
+        "CAGR": cagr(r, periods_per_year),
+        "Volatility": annual_volatility(r, periods_per_year),
+        "Sharpe": sharpe(r, risk_free_rate, periods_per_year),
+        "Sortino": sortino(r, risk_free_rate, periods_per_year),
+        "Calmar": calmar(r, periods_per_year),
+        "Max Drawdown": max_drawdown(r),
+        "Avg Drawdown": avg_drawdown(r),
+        "Ulcer Index": ulcer_index(r),
+        "VaR (95%)": value_at_risk(r, 0.95),
+        "CVaR (95%)": conditional_var(r, 0.95),
+        "Downside Dev": downside_deviation(r, 0.0, periods_per_year),
+        "Omega": omega(r, 0.0),
+        "Hit Rate": hit_rate(r),
+        "Win/Loss": win_loss_ratio(r),
+        "Tail Ratio": tail_ratio(r),
+        "Skew": skewness(r),
+        "Kurtosis": kurtosis(r),
     }
-    
-    plot_data = {
-        "daily_returns": daily_returns_df,
-        "cumulative_returns": cumulative_returns_df,
-        "monthly_returns": monthly_returns,
-        "log_returns": log_returns,
-        "rolling_sharpe": rolling_sharpe,
-        "yearly_returns": yearly_returns
-    }
-    
-    return metrics, plot_data
+    if benchmark is not None:
+        out["Tracking Error"] = tracking_error(r, benchmark, periods_per_year)
+        out["Information Ratio"] = information_ratio(r, benchmark, periods_per_year)
+    return out
+

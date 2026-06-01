@@ -39,3 +39,9 @@ graphify-out/
 
 # Misc local planning docs
 IMPLEMENTATION_PLAN.md
+
+# Local agent/session scaffolding (not part of the library)
+.claude/
+HANDOFF.md
+council-report-*.html
+council-transcript-*.md

@@ -6,9 +6,8 @@ portfolio excess returns into allocation, selection, and interaction effects.
 """
 
 import logging
-import numpy as np
 import pandas as pd
-from typing import Optional, Dict, List
+from typing import Optional, Dict
 
 logger = logging.getLogger(__name__)
 

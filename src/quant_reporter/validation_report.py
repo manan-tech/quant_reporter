@@ -1,13 +1,13 @@
 import logging
 import pandas as pd
 import numpy as np
-import traceback
 
 logger = logging.getLogger(__name__)
 
 from .report_context import ReportContext, build_context
-from .metrics import calculate_metrics
+from .metrics import compute_drawdown
 from .html_builder import generate_html_report
+from .analytics import ReturnsBundle, compute_metrics
 
 from .opt_core import (
     get_optimization_inputs,
@@ -22,29 +22,28 @@ from .opt_plotting import (
     plot_drawdown_comparison
 )
 
+
+def _bundle_from_growth(strategy_growth, benchmark_growth):
+    """Build a ReturnsBundle from two Growth-of-$1 series (portfolio and benchmark)."""
+    growth = pd.concat({"Portfolio": strategy_growth, "Benchmark": benchmark_growth}, axis=1).dropna()
+    return ReturnsBundle(daily=growth.pct_change().dropna(), growth=growth, weights_history=None)
+
+
 def calculate_overfitting_score(is_metrics, oos_metrics):
     """
     Calculates Overfitting Score and Strategy Degradation.
-    Overfitting Score = (IS_Sharpe - OOS_Sharpe) / IS_Sharpe 
+    Overfitting Score = (IS_Sharpe - OOS_Sharpe) / IS_Sharpe
     Strategy Degradation = (IS_CAGR - OOS_CAGR) / IS_CAGR
-    """
-    def _to_num(val):
-        # calculate_metrics returns formatted strings, e.g. "1.23" or "12.34%"
-        if val is None:
-            return None
-        if isinstance(val, str):
-            val = val.replace(',', '').strip()
-            return float(val.replace('%', '')) / 100 if '%' in val else float(val)
-        return val
 
+    Expects numeric metric dicts (from compute_metrics) keyed by
+    "Realized Sharpe" and "Realized CAGR".
+    """
     scores = {}
     for portfolio_name in is_metrics.keys():
-        # NOTE: calculate_metrics keys are suffixed "(Asset)"; using the bare
-        # "Sharpe Ratio"/"CAGR" keys here silently yielded None -> scores of 0.
-        is_sharpe = _to_num(is_metrics[portfolio_name].get("Sharpe Ratio (Asset)"))
-        oos_sharpe = _to_num(oos_metrics[portfolio_name].get("Sharpe Ratio (Asset)"))
-        is_cagr = _to_num(is_metrics[portfolio_name].get("CAGR (Asset)", "0%"))
-        oos_cagr = _to_num(oos_metrics[portfolio_name].get("CAGR (Asset)", "0%"))
+        is_sharpe = is_metrics[portfolio_name].get("Realized Sharpe")
+        oos_sharpe = oos_metrics[portfolio_name].get("Realized Sharpe")
+        is_cagr = is_metrics[portfolio_name].get("Realized CAGR", 0.0)
+        oos_cagr = oos_metrics[portfolio_name].get("Realized CAGR", 0.0)
 
         if is_sharpe and is_sharpe > 0 and oos_sharpe is not None:
             overfitting_score = max(0, (is_sharpe - oos_sharpe) / is_sharpe)
@@ -62,13 +61,23 @@ def calculate_overfitting_score(is_metrics, oos_metrics):
         }
     return pd.DataFrame.from_dict(scores, orient='index')
 
-def run_rolling_windows(ctx: ReportContext, window_years=1, step_months=3):
+def run_rolling_windows(ctx: ReportContext, window_years=1, step_months=3,
+                        denoise_cov: bool = False, n_components: int = 3,
+                        return_schedule: bool = False):
     """
     Performs Rolling Window Walk-Forward Validation using a fixed window size.
     Returns a dataframe of out-of-sample Sharpe ratios across all periods.
+
+    When ``return_schedule=True``, additionally returns a per-strategy weight
+    schedule as ``(rolling_df, target_weight_schedule)`` where
+    ``target_weight_schedule`` is ``dict[strategy_name -> DataFrame]`` (index = each
+    window's OOS start date, columns = ``ctx.friendly_tickers``, values = that
+    window's weights) for the strategies built inside the loop: ``Equal Wt``,
+    ``Min Vol``, ``Max Sharpe``, ``User Portfolio``.
     """
     results = []
-    
+    schedule_rows = {"Equal Wt": {}, "Min Vol": {}, "Max Sharpe": {}, "User Portfolio": {}}
+
     start_date = ctx.price_data_full.index.min()
     end_date = ctx.price_data_full.index.max()
     
@@ -89,7 +98,11 @@ def run_rolling_windows(ctx: ReportContext, window_years=1, step_months=3):
         if train_data.empty or test_data.empty:
             break
             
-        mean_returns, cov_matrix, _ = get_optimization_inputs(train_data[ctx.friendly_tickers])
+        mean_returns, cov_matrix, _ = get_optimization_inputs(
+                train_data[ctx.friendly_tickers],
+                denoise_cov=denoise_cov,
+                n_components=n_components,
+            )
         
         bounds_uncon = tuple((0, 1) for _ in range(num_assets))
         cons_uncon = build_constraints(num_assets, ctx.tickers)
@@ -105,15 +118,18 @@ def run_rolling_windows(ctx: ReportContext, window_years=1, step_months=3):
                 "Max Sharpe": {t: w for t, w in zip(ctx.friendly_tickers, max_sharpe_arr)},
                 "User Portfolio": ctx.user_friendly_weights
             }
-            
+
+            for _name, _w in w_dicts.items():
+                schedule_rows[_name][test_start] = _w
+
             window_metrics = {"Test Period": f"{test_start.strftime('%Y-%m')} to {test_end.strftime('%Y-%m')}"}
             
-            eval_data = (test_data[[ctx.friendly_benchmark]] / test_data[[ctx.friendly_benchmark]].iloc[0]).copy()
+            bench_growth = (test_data[ctx.friendly_benchmark] / test_data[ctx.friendly_benchmark].iloc[0])
             for name, w_dict in w_dicts.items():
-                eval_data[name] = get_portfolio_price(test_data[ctx.friendly_tickers], w_dict)
-                metrics, _ = calculate_metrics(eval_data, name, ctx.friendly_benchmark, ctx.risk_free_rate)
-                _sharpe = metrics.get("Sharpe Ratio (Asset)")
-                window_metrics[f"{name} Sharpe"] = float(_sharpe) if _sharpe is not None else np.nan
+                strat_growth = get_portfolio_price(test_data[ctx.friendly_tickers], w_dict)
+                bundle = _bundle_from_growth(strat_growth, bench_growth)
+                m = compute_metrics(bundle, ctx.risk_free_rate)
+                window_metrics[f"{name} Sharpe"] = m.get("Realized Sharpe", np.nan)
                 
             results.append(window_metrics)
         except Exception as e:
@@ -121,9 +137,15 @@ def run_rolling_windows(ctx: ReportContext, window_years=1, step_months=3):
             
         current_train_start += pd.Timedelta(days=step_days)
     
-    if len(results) > 0:
-        return pd.DataFrame(results).set_index("Test Period")
-    return pd.DataFrame()
+    rolling_df = pd.DataFrame(results).set_index("Test Period") if results else pd.DataFrame()
+    if return_schedule:
+        schedule = {
+            name: pd.DataFrame.from_dict(rows, orient="index").reindex(
+                columns=ctx.friendly_tickers).sort_index()
+            for name, rows in schedule_rows.items()
+        }
+        return rolling_df, schedule
+    return rolling_df
 
 
 def compute_validation_analysis(ctx: ReportContext):
@@ -158,48 +180,59 @@ def compute_validation_analysis(ctx: ReportContext):
         sec_bal_weights_arr = find_optimal_portfolio(objective_neg_sharpe, ctx.mean_returns, ctx.cov_matrix, bounds_uncon, cons_sector, ctx.risk_free_rate)
         weights["Sector Balanced"] = {t: w for t, w in zip(ctx.friendly_tickers, sec_bal_weights_arr)}
 
-    # --- IS Performance ---
+    # --- IS Performance (numeric metrics via analytics core) ---
     in_sample_results = {}
-    in_sample_eval_data = (ctx.price_data_train[[ctx.friendly_benchmark]] / ctx.price_data_train[[ctx.friendly_benchmark]].iloc[0]).copy()
-    
-    for name, w_dict in weights.items():
-        in_sample_eval_data[name] = get_portfolio_price(ctx.price_data_train[ctx.friendly_tickers], w_dict)
-        metrics, _ = calculate_metrics(in_sample_eval_data, name, ctx.friendly_benchmark, ctx.risk_free_rate)
-        in_sample_results[name] = metrics
+    is_bench_growth = ctx.price_data_train[ctx.friendly_benchmark] / ctx.price_data_train[ctx.friendly_benchmark].iloc[0]
+    # Build cumulative-return frame for plotting (benchmark + all strategies)
+    in_sample_eval_data = pd.DataFrame({ctx.friendly_benchmark: is_bench_growth})
 
-    # --- OOS Performance ---
-    out_sample_results = {}
-    out_sample_eval_data = (ctx.price_data_test[[ctx.friendly_benchmark]] / ctx.price_data_test[[ctx.friendly_benchmark]].iloc[0]).copy()
-    
     for name, w_dict in weights.items():
-        out_sample_eval_data[name] = get_portfolio_price(ctx.price_data_test[ctx.friendly_tickers], w_dict)
-        metrics, _ = calculate_metrics(out_sample_eval_data, name, ctx.friendly_benchmark, ctx.risk_free_rate)
-        out_sample_results[name] = metrics
+        strat_growth = get_portfolio_price(ctx.price_data_train[ctx.friendly_tickers], w_dict)
+        in_sample_eval_data[name] = strat_growth
+        bundle = _bundle_from_growth(strat_growth, is_bench_growth)
+        in_sample_results[name] = compute_metrics(bundle, ctx.risk_free_rate)
+
+    # --- OOS Performance (numeric metrics via analytics core) ---
+    out_sample_results = {}
+    oos_bench_growth = ctx.price_data_test[ctx.friendly_benchmark] / ctx.price_data_test[ctx.friendly_benchmark].iloc[0]
+    # Build cumulative-return frame for plotting (benchmark + all strategies)
+    out_sample_eval_data = pd.DataFrame({ctx.friendly_benchmark: oos_bench_growth})
+
+    for name, w_dict in weights.items():
+        strat_growth = get_portfolio_price(ctx.price_data_test[ctx.friendly_tickers], w_dict)
+        out_sample_eval_data[name] = strat_growth
+        bundle = _bundle_from_growth(strat_growth, oos_bench_growth)
+        out_sample_results[name] = compute_metrics(bundle, ctx.risk_free_rate)
 
     # --- Combine and Score ---
     final_results = []
+    # Keys match compute_metrics numeric dict; values are display column names
     metrics_to_show = {
-        "CAGR (Asset)": "CAGR", "Annualized Volatility (Asset)": "Volatility",
-        "Sharpe Ratio (Asset)": "Sharpe Ratio", "Max Drawdown": "Max Drawdown",
+        "Realized CAGR": "CAGR",
+        "Realized Volatility": "Volatility",
+        "Realized Sharpe": "Sharpe Ratio",
+        "Max Drawdown": "Max Drawdown",
     }
-    
+
     for name in weights.keys():
         row = {"Portfolio": name}
         for key, short_name in metrics_to_show.items():
             row[f"In-Sample {short_name}"] = in_sample_results[name].get(key)
             row[f"Out-of-Sample {short_name}"] = out_sample_results[name].get(key)
         final_results.append(row)
-        
+
     results_df = pd.DataFrame(final_results).set_index("Portfolio")
-    results_df = results_df.map(lambda x: float(str(x).replace('%', '')) / 100 if isinstance(x, str) and '%' in x else (float(x) if isinstance(x, str) else x))
+    # Values are already numeric floats — no string round-trip needed
     validation_table_html = results_df.to_html(classes='metrics-table', float_format='{:.2%}'.format)
 
     # Overfitting
     overfitting_df = calculate_overfitting_score(in_sample_results, out_sample_results)
     overfitting_html = overfitting_df.to_html(classes='metrics-table', float_format='{:.2%}'.format)
 
-    # Rolling Windows
-    rolling_df = run_rolling_windows(ctx)
+    # Rolling Windows (use same denoise settings as in-sample optimization)
+    _denoise_cov = getattr(ctx, "denoise_cov", False)
+    _n_components = getattr(ctx, "n_components", 3)
+    rolling_df = run_rolling_windows(ctx, denoise_cov=_denoise_cov, n_components=_n_components)
     rolling_html = "<p><i>Insufficient data for rolling windows</i></p>"
     if not rolling_df.empty:
         rolling_html = rolling_df.to_html(classes='metrics-table', float_format='{:.2f}'.format)
@@ -208,8 +241,7 @@ def compute_validation_analysis(ctx: ReportContext):
     cumulative_returns_df = out_sample_eval_data
     drawdown_df = pd.DataFrame()
     for col in cumulative_returns_df.columns:
-        peak = cumulative_returns_df[col].cummax()
-        drawdown_df[col] = (cumulative_returns_df[col] - peak) / peak
+        drawdown_df[col] = compute_drawdown(cumulative_returns_df[col]).curve
         
     sections = [{
         "title": "Walk-Forward Validation Dashboard",

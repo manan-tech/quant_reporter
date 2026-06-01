@@ -1,6 +1,5 @@
 import logging
 import pandas as pd
-import numpy as np
 import plotly.io as pio
 
 logger = logging.getLogger(__name__)

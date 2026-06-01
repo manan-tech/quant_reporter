@@ -1,12 +1,12 @@
 import logging
 import pandas as pd
 import numpy as np
-import traceback
 
 logger = logging.getLogger(__name__)
 
 from .report_context import ReportContext, build_context
-from .metrics import calculate_metrics
+from .metrics import compute_drawdown
+from .analytics import ReturnsBundle, compute_metrics, format_metrics
 from .html_builder import generate_html_report
 
 from .opt_core import (
@@ -14,7 +14,6 @@ from .opt_core import (
     objective_neg_sharpe,
     objective_min_variance,
     calculate_efficient_frontier_curve,
-    calculate_rolling_returns,
     get_portfolio_price,
     build_constraints
 )
@@ -45,6 +44,12 @@ from .black_litterman import (
     calculate_implied_equilibrium_returns,
     calculate_black_litterman_posterior
 )
+
+def _bundle_from_growth(strategy_growth, benchmark_growth):
+    """Build a ReturnsBundle from two Growth-of-$1 series (portfolio and benchmark)."""
+    growth = pd.concat({"Portfolio": strategy_growth, "Benchmark": benchmark_growth}, axis=1).dropna()
+    return ReturnsBundle(daily=growth.pct_change().dropna(), growth=growth, weights_history=None)
+
 
 def calculate_transition_costs(current_weights, target_weights_dict, transaction_cost_bps=10):
     """
@@ -172,7 +177,7 @@ def compute_optimization_analysis(ctx: ReportContext):
     if ctx.bl_views or ctx.bl_relative_views:
         logger.info("Running Black-Litterman optimization...")
         try:
-            market_caps = get_market_caps(ctx.tickers)
+            market_caps = get_market_caps(ctx.tickers, provider=ctx.data_provider)
             bl_market_weights = calculate_market_weights(market_caps)
             bl_market_weights = bl_market_weights.reindex(ctx.friendly_tickers).fillna(0)
             bl_market_weights = bl_market_weights / bl_market_weights.sum()
@@ -209,21 +214,34 @@ def compute_optimization_analysis(ctx: ReportContext):
             logger.warning(f"Black-Litterman skipped: {e}")
 
     # 5. Evaluate Performance (In-Sample)
-    eval_data = (ctx.price_data_train[[ctx.friendly_benchmark]] / ctx.price_data_train[[ctx.friendly_benchmark]].iloc[0]).copy()
+    # Benchmark Growth-of-$1 sourced from ctx.analytics.returns.growth to avoid
+    # a second divergent normalization; slice to the train period used by eval_data.
+    train_mask = (
+        (ctx.analytics.returns.growth.index >= pd.to_datetime(ctx.train_start)) &
+        (ctx.analytics.returns.growth.index <= pd.to_datetime(ctx.train_end))
+    )
+    bench_growth_train = ctx.analytics.returns.growth.loc[train_mask, "Benchmark"]
+    # Align to price_data_train index in case of minor day differences
+    bench_growth_train = bench_growth_train.reindex(ctx.price_data_train.index, method="ffill").dropna()
+    # Re-normalize so it starts at 1.0 on the first available day
+    bench_growth_train = bench_growth_train / bench_growth_train.iloc[0]
+
+    eval_data = pd.DataFrame({ctx.friendly_benchmark: bench_growth_train})
     optimal_portfolios = {}
-    
+
     target_weights_dict = {}
 
     for name, w_dict in weights_collection.items():
         eval_data[name] = get_portfolio_price(ctx.price_data_train[ctx.friendly_tickers], w_dict)
-        metrics, _ = calculate_metrics(eval_data, name, ctx.friendly_benchmark, ctx.risk_free_rate)
-        # Store for pie charts and rich info
+        # Compute per-strategy metrics via the numeric analytics core
+        bundle = _bundle_from_growth(eval_data[name], eval_data[ctx.friendly_benchmark])
+        m = compute_metrics(bundle, ctx.risk_free_rate)
+        # Store for pie charts and rich info; metrics must be formatted strings for HTML display
         aligned_arr = np.array([w_dict.get(t, 0) for t in ctx.friendly_tickers])
-        color = "blue" # We can make color dynamic if needed
         optimal_portfolios[name] = {
             "weights_arr": aligned_arr,
             "weights_dict": w_dict,
-            "metrics": metrics,
+            "metrics": format_metrics(m),
             "color": "rgb(55, 128, 191)" # Default color
         }
         if name != "User Portfolio":
@@ -238,15 +256,20 @@ def compute_optimization_analysis(ctx: ReportContext):
     capture_html = capture_df.map(lambda x: f"{x:.2f}x").to_html(classes='metrics-table')
 
     # 7. Precompute Chart Data
+    # Rolling Sharpe: derived once from eval_data daily returns (covers all strategies).
+    # For the "Portfolio" column the series is consistent with ctx.analytics.returns.daily
+    # because eval_data["User Portfolio"] uses the same get_portfolio_price normalization.
     daily_returns_df = eval_data.pct_change().dropna()
     excess_returns_df = daily_returns_df - (ctx.risk_free_rate / 252)
     rolling_sharpe_df = (excess_returns_df.rolling(60).mean() * 252) / (excess_returns_df.rolling(60).std() * np.sqrt(252))
-    
+
+    # Drawdown: computed via compute_drawdown (the analytics core's canonical function)
+    # applied to each Growth-of-$1 column in eval_data.
     cumulative_returns_df = eval_data
-    drawdown_df = pd.DataFrame()
-    for col in cumulative_returns_df.columns:
-        peak = cumulative_returns_df[col].cummax()
-        drawdown_df[col] = (cumulative_returns_df[col] - peak) / peak
+    drawdown_df = pd.concat(
+        {col: compute_drawdown(cumulative_returns_df[col]).curve for col in cumulative_returns_df.columns},
+        axis=1,
+    )
         
     frontier_curve = calculate_efficient_frontier_curve(ctx.mean_returns, ctx.cov_matrix)
 

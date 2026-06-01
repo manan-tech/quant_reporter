@@ -8,10 +8,11 @@ logger = logging.getLogger(__name__)
 from .html_builder import generate_html_report
 from .opt_core import get_portfolio_stats
 
-def simulate_portfolio_paths(weights, mean_returns, cov_matrix, num_simulations=1000, time_horizon=252, initial_investment=10000):
+def simulate_portfolio_paths(weights, mean_returns, cov_matrix, num_simulations=1000, time_horizon=252, initial_investment=10000, stress_shock=0.0, seed=None, risk_free_rate=0.02):
     """
-    Simulates future portfolio paths using Geometric Brownian Motion (GBM).
-    
+    Simulates future portfolio paths using Geometric Brownian Motion (GBM),
+    with an optional Day 1 stress shock and optional deterministic seed.
+
     Args:
         weights (list/array): Portfolio weights.
         mean_returns (series): Annualized mean returns of assets.
@@ -19,50 +20,64 @@ def simulate_portfolio_paths(weights, mean_returns, cov_matrix, num_simulations=
         num_simulations (int): Number of paths to simulate.
         time_horizon (int): Number of trading days to simulate (e.g., 252 for 1 year).
         initial_investment (float): Starting value of the portfolio.
-        
+        stress_shock (float): Fractional Day-1 shock applied to all paths (e.g. -0.20 for -20%).
+            Converted to a log-return shock: log(1 + stress_shock).
+        seed (int or None): Seed for the local NumPy Generator. When provided, the simulation
+            is fully deterministic. Defaults to None (non-deterministic).
+        risk_free_rate (float): Annualised risk-free rate passed to get_portfolio_stats.
+
     Returns:
-        simulation_df (pd.DataFrame): DataFrame of shape (time_horizon, num_simulations) with portfolio values.
+        simulation_df (pd.DataFrame): DataFrame of shape (time_horizon+1, num_simulations) with portfolio values.
     """
     logger.info("Running %d Monte Carlo simulations for %d days...", num_simulations, time_horizon)
-    
+
     weights = np.array(weights)
-    
+
     # Calculate portfolio expected return and volatility
-    port_return, port_vol, _ = get_portfolio_stats(weights, mean_returns, cov_matrix)
-    
+    port_return, port_vol, _ = get_portfolio_stats(weights, mean_returns, cov_matrix, risk_free_rate)
+
     # Convert annualized metrics to daily
     daily_return = port_return / 252
     daily_vol = port_vol / np.sqrt(252)
-    
+
     # Simulation logic using GBM: S_t = S_0 * exp((mu - 0.5 * sigma^2) * t + sigma * W_t)
     # We simulate daily steps.
-    
-    dt = 1 # 1 day step
-    
+
+    dt = 1  # 1 day step
+
+    # Use a local Generator so the global NumPy state is never disturbed.
+    rng = np.random.default_rng(seed)
+
     # Generate random shocks (Brownian motion)
     # Shape: (time_horizon, num_simulations)
-    random_shocks = np.random.normal(0, 1, (time_horizon, num_simulations))
-    
+    random_shocks = rng.standard_normal((time_horizon, num_simulations))
+
     # Calculate daily drift and diffusion
     # drift = (mu - 0.5 * sigma^2) * dt
     drift = (daily_return - 0.5 * daily_vol**2) * dt
-    
+
     # diffusion = sigma * sqrt(dt) * Z
     diffusion = daily_vol * np.sqrt(dt) * random_shocks
-    
+
     # Calculate daily log returns
     daily_log_returns = drift + diffusion
-    
+
+    # Apply initial stress shock to the first day's returns
+    if stress_shock != 0.0:
+        # Convert % shock (-0.20) to log return shock
+        log_shock = np.log(1 + stress_shock)
+        daily_log_returns[0, :] += log_shock
+
     # Calculate cumulative returns path
     # We start from 0 log return at t=0
     cumulative_log_returns = np.cumsum(daily_log_returns, axis=0)
-    
+
     # Convert back to price paths
     # Add initial row of zeros for t=0
     cumulative_log_returns = np.vstack([np.zeros((1, num_simulations)), cumulative_log_returns])
-    
+
     simulation_paths = initial_investment * np.exp(cumulative_log_returns)
-    
+
     return pd.DataFrame(simulation_paths)
 
 def calculate_simulation_metrics(simulation_df, confidence_level=0.95, actual_return=None):
@@ -88,8 +103,8 @@ def calculate_simulation_metrics(simulation_df, confidence_level=0.95, actual_re
     metrics = {
         "Mean Expected Return": f"{mean_return:.2%}",
         "Median Expected Return": f"{median_return:.2%}",
-        f"VaR ({confidence_level:.0%})": f"{var_percentile:.2%}",
-        f"CVaR ({confidence_level:.0%})": f"{cvar_percentile:.2%}",
+        f"Horizon VaR (simulated) ({confidence_level:.0%})": f"{var_percentile:.2%}",
+        f"Horizon CVaR (simulated) ({confidence_level:.0%})": f"{cvar_percentile:.2%}",
         "Best Case (95th percentile)": f"{np.percentile(total_returns, 95):.2%}",
         "Worst Case (5th percentile)": f"{np.percentile(total_returns, 5):.2%}"
     }
@@ -238,27 +253,31 @@ def plot_simulation_distribution(total_returns, actual_return=None):
     fig.update_layout(template='plotly_white')
     return fig
 
-def create_monte_carlo_report(weights, mean_returns, cov_matrix, 
+def create_monte_carlo_report(weights, mean_returns, cov_matrix,
                               num_simulations=1000, time_horizon=252, initial_investment=10000,
                               actual_return=None, actual_path=None,
-                              filename="monte_carlo_report.html", title="Monte Carlo Simulation Report"):
+                              filename="monte_carlo_report.html", title="Monte Carlo Simulation Report",
+                              seed=42):
     """
     Generates a standalone HTML report for Monte Carlo simulations.
+
+    Args:
+        seed (int or None): RNG seed for reproducibility. Defaults to 42.
     """
     logger.info("Starting Monte Carlo Report Generation")
-    
+
     # Run Simulation
-    sim_df = simulate_portfolio_paths(weights, mean_returns, cov_matrix, num_simulations, time_horizon, initial_investment)
-    
+    sim_df = simulate_portfolio_paths(weights, mean_returns, cov_matrix, num_simulations, time_horizon, initial_investment, seed=seed)
+
     # Calculate Metrics
     metrics, total_returns = calculate_simulation_metrics(sim_df, actual_return=actual_return)
     probs = calculate_success_probabilities(total_returns)
-    
+
     # Generate Plots
     paths_plot = plot_simulation_paths(sim_df, actual_path=actual_path)
     dist_plot = plot_simulation_distribution(total_returns, actual_return=actual_return)
     prob_curve = plot_probability_curve(total_returns, actual_return=actual_return)
-    
+
     # Build Report
     sections = [{
         "title": "Simulation Results",
@@ -273,6 +292,6 @@ def create_monte_carlo_report(weights, mean_returns, cov_matrix,
             {"title": "Probability of Exceeding Return", "type": "plot", "data": prob_curve}
         ]
     }]
-    
+
     generate_html_report(sections, title=title, filename=filename)
     logger.info("Monte Carlo Report Generated: %s", filename)
