@@ -125,6 +125,7 @@ def create_backtest_report(result_or_results, path="backtest_report.html", open_
         title = f"Backtest Report — {result_or_results.name}"
     generate_html_report(sections, title=title, filename=path)
     if open_browser:
+        import os
         import webbrowser
-        webbrowser.open(f"file://{path}")
+        webbrowser.open(f"file://{os.path.abspath(path)}")
     return path

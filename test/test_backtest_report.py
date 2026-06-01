@@ -59,3 +59,13 @@ def test_multi_strategy_report_has_comparison(tmp_path):
     create_backtest_report(results, path=path)
     html = open(path, encoding="utf-8").read()
     assert "OOS Strategy Comparison" in html
+
+
+def test_open_browser_uses_absolute_file_url(tmp_path, monkeypatch):
+    opened = {}
+    monkeypatch.setattr("webbrowser.open", lambda url: opened.setdefault("url", url) or True)
+    res = _res()
+    path = str(tmp_path / "bt.html")
+    create_backtest_report(res, path=path, open_browser=True)
+    # Must be an absolute file URL (file:///...), not a relative one.
+    assert opened["url"].startswith("file:///")
