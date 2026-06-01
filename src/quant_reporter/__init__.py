@@ -213,4 +213,11 @@ from .strategies import (
 from .strategy import Strategy, backtest, backtest_many, BacktestResult
 from .backtest_report import create_backtest_report
 
+# --- SP4: recommendation layer (opt-in opinions) ---
+from .recommendation import (
+    recommend, recommend_weights, rebalance_trades, risk_alerts, compare_verdict,
+    Recommendation, RecommendedWeights, RebalancePlan, Trade, RiskAlert, StrategyVerdict,
+)
+from .recommendation_report import create_recommendation_report
+
 __version__ = "2.0.0"
