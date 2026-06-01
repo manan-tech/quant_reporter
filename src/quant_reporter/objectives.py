@@ -18,8 +18,6 @@ def neg_sharpe(weights, mean_returns, cov_matrix, risk_free_rate=0.02):
     cov = _cov(cov_matrix)
     port_return = float(w @ mu)
     port_vol = float(np.sqrt(max(w @ cov @ w, 1e-30)))
-    if port_vol <= 0:
-        return 0.0
     return float(-(port_return - risk_free_rate) / port_vol)
 
 
@@ -32,7 +30,8 @@ def variance(weights, mean_returns=None, cov_matrix=None, risk_free_rate=0.02):
 def cvar_objective(weights, returns_matrix, confidence=0.95):
     w = np.asarray(weights, dtype=float)
     R = returns_matrix.values if hasattr(returns_matrix, "values") else np.asarray(returns_matrix, dtype=float)
-    port = R @ w
+    with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
+        port = R @ w
     threshold = np.quantile(port, 1.0 - confidence)
     tail = port[port <= threshold]
     if tail.size == 0:
@@ -44,7 +43,8 @@ def tracking_error_objective(weights, returns_matrix, benchmark_returns):
     w = np.asarray(weights, dtype=float)
     R = returns_matrix.values if hasattr(returns_matrix, "values") else np.asarray(returns_matrix, dtype=float)
     b = np.asarray(benchmark_returns, dtype=float)
-    active = R @ w - b
+    with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
+        active = R @ w - b
     if active.size < 2:
         return 0.0
     return float(np.std(active, ddof=1))

@@ -53,3 +53,16 @@ def test_neg_sharpe_drop_in_for_find_optimal_portfolio():
                        method="SLSQP", bounds=[(0, 1)] * 2,
                        constraints=[{"type": "eq", "fun": lambda w: w.sum() - 1}])
     assert res.success and 0 <= res.x[0] <= 1
+
+
+def test_objectives_no_blas_runtime_warnings():
+    """Large R @ w must not leak macOS Accelerate BLAS RuntimeWarnings."""
+    import warnings
+    rng = np.random.default_rng(1)
+    R = rng.normal(0.0003, 0.01, (600, 3))   # N>=500, k=3 triggers the spurious warning
+    w = np.array([1 / 3, 1 / 3, 1 / 3])
+    bench = rng.normal(0.0003, 0.01, 600)
+    with warnings.catch_warnings():
+        warnings.filterwarnings("error", category=RuntimeWarning)
+        cvar_objective(w, R, 0.95)
+        tracking_error_objective(w, R, bench)
