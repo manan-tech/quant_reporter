@@ -61,3 +61,63 @@ def recommend_weights(prices, *, objective=neg_sharpe, bounds=None, constraints=
                 "expected_return": float(port_ret), "expected_vol": float(port_vol)}
     return RecommendedWeights(weights=weights, objective=obj_name,
                               rationale=rationale, evidence=evidence)
+
+
+@dataclass
+class Trade:
+    ticker: str
+    side: str                 # 'buy' | 'sell'
+    current_weight: float
+    target_weight: float
+    delta: float              # target - current
+    rationale: str
+    evidence: dict = field(default_factory=dict)
+
+
+@dataclass
+class RebalancePlan:
+    orders: list              # list[Trade]
+    turnover: float           # one-way
+    est_cost: float           # cost_frac on executed deltas
+    held: list                # tickers inside the no-trade band
+    rationale: str
+    evidence: dict = field(default_factory=dict)
+
+
+def rebalance_trades(current_weights, target_weights, *, cost_model=None, threshold=0.0):
+    """Trade list from current -> target weights, with a no-trade band, turnover,
+    and an estimated cost on the executed deltas."""
+    to = portfolio_turnover(current_weights, target_weights, convention="one_way")
+    deltas = to["trades"]     # signed Series, union-aligned (missing -> 0)
+    cur = pd.Series(current_weights, dtype=float).reindex(deltas.index).fillna(0.0)
+    tgt = pd.Series(target_weights, dtype=float).reindex(deltas.index).fillna(0.0)
+
+    orders, held, executed = [], [], {}
+    for tk in deltas.index:
+        d = float(deltas[tk])
+        if abs(d) == 0:
+            continue                      # no change for this ticker
+        if abs(d) < threshold:
+            held.append(str(tk))          # inside the no-trade band
+            continue
+        executed[tk] = d
+        side = "buy" if d > 0 else "sell"
+        orders.append(Trade(
+            ticker=str(tk), side=side,
+            current_weight=float(cur[tk]), target_weight=float(tgt[tk]), delta=d,
+            rationale=f"{side.title()} {tk}: {cur[tk]:.2%} -> {tgt[tk]:.2%} (delta {d:+.2%}).",
+            evidence={"abs_delta": abs(d), "threshold": threshold},
+        ))
+
+    cost_fn = cost_model or transaction_cost_model
+    est_cost = float(cost_fn(pd.Series(executed, dtype=float))["cost_frac"])
+    turnover = float(to["turnover"])
+    rationale = (f"{len(orders)} order(s); one-way turnover {turnover:.2%}, "
+                 f"est. cost {est_cost * 1e4:.1f} bps." +
+                 (f" {len(held)} position(s) held inside the {threshold:.2%} band." if held else ""))
+    return RebalancePlan(
+        orders=orders, turnover=turnover, est_cost=est_cost, held=held,
+        rationale=rationale,
+        evidence={"turnover": turnover, "est_cost": est_cost,
+                  "n_orders": len(orders), "n_held": len(held), "threshold": threshold},
+    )
