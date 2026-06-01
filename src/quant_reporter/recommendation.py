@@ -56,9 +56,11 @@ def recommend_weights(prices, *, objective=neg_sharpe, bounds=None, constraints=
     weights = {c: float(wi) for c, wi in zip(cols, np.asarray(w, dtype=float))}
     obj_name = getattr(objective, "__name__", str(objective))
     rationale = (f"Weights chosen by optimizing the {obj_name} objective; resulting "
-                 f"Sharpe {sharpe:.2f} (return {port_ret:.2%}, vol {port_vol:.2%}).")
+                 f"Sharpe {sharpe:.2f} (return {port_ret:.2%}, vol {port_vol:.2%}; "
+                 f"annualized log-return basis).")
     evidence = {"objective": obj_name, "sharpe": float(sharpe),
-                "expected_return": float(port_ret), "expected_vol": float(port_vol)}
+                "expected_return": float(port_ret), "expected_vol": float(port_vol),
+                "basis": "annualized_log_return"}
     return RecommendedWeights(weights=weights, objective=obj_name,
                               rationale=rationale, evidence=evidence)
 
@@ -147,6 +149,9 @@ def risk_alerts(weights, prices, *, vol_target=0.10, max_drawdown_limit=0.20,
     RiskAlert; only 'warning'/'breach' checks emit. `weights` tickers must be a
     subset of `prices` columns. Opinions (limits) are overridable params."""
     w = pd.Series(weights, dtype=float)
+    missing = [t for t in w.index if t not in prices.columns]
+    if missing:
+        raise ValueError(f"weights contain tickers not in prices columns: {missing}")
     asset_prices = prices[list(w.index)]
     alerts = []
 

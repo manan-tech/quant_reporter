@@ -265,3 +265,8 @@ def test_recommendation_to_text_includes_sections():
     rec = recommend(_prices(n=700), current_weights={"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}, **_OFF)
     txt = rec.to_text()
     assert "Rebalance:" in txt and "Risk alerts:" in txt
+
+
+def test_risk_alerts_unknown_ticker_raises_valueerror():
+    with pytest.raises(ValueError, match="not in prices"):
+        risk_alerts({"AAA": 0.5, "ZZZ": 0.5}, _prices(), **_OFF)
