@@ -98,14 +98,20 @@ def test_fnr_residuals_have_lower_correlation_with_factor():
     assert resid_corr < original_corr
 
 
-def test_fnr_single_factor_self_residual_near_zero_corr():
-    """An asset regressed on itself → residuals uncorrelated with the factor."""
+def test_fnr_single_factor_self_residual_is_negligible():
+    """An asset regressed on itself → residuals are ~0 (the factor fully explains it).
+
+    We assert on the residual MAGNITUDE relative to the input, not its correlation
+    with the factor: the residuals here are at machine epsilon, and the correlation
+    of ~0 noise with the factor is numerically meaningless and varies by BLAS
+    backend (macOS Accelerate vs Linux OpenBLAS), which made the old corr-based
+    assertion flaky across platforms.
+    """
     prices = make_synthetic_prices()
     returns = prices[["AAA"]].pct_change().dropna()
     factors = pd.DataFrame({"F1": returns["AAA"]}, index=returns.index)
-    resid = factor_neutralize_returns(returns, factors)
-    corr = abs(resid["AAA"].dropna().corr(returns["AAA"]))
-    assert corr < 0.01
+    resid = factor_neutralize_returns(returns, factors)["AAA"].dropna()
+    assert resid.abs().max() < 1e-9 * returns["AAA"].abs().max()
 
 
 def test_fnr_insufficient_data_gives_nan():
