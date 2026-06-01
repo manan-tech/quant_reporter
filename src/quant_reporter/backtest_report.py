@@ -114,7 +114,8 @@ def _comparison_section(results):
     }
 
 
-def create_backtest_report(result_or_results, path="backtest_report.html", open_browser=False):
+def create_backtest_report(result_or_results, path="backtest_report.html",
+                           open_browser=False, recommendation=None):
     if isinstance(result_or_results, dict):
         sections = []
         for res in result_or_results.values():
@@ -124,6 +125,9 @@ def create_backtest_report(result_or_results, path="backtest_report.html", open_
     else:
         sections = build_sections(result_or_results)
         title = f"Backtest Report — {result_or_results.name}"
+    if recommendation is not None:
+        from .recommendation_report import build_recommendation_section
+        sections.append(build_recommendation_section(recommendation))
     generate_html_report(sections, title=title, filename=path)
     if open_browser:
         import os

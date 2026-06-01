@@ -52,3 +52,17 @@ def test_report_handles_missing_panels(tmp_path):
     create_recommendation_report(rec, path=path)
     html = open(path, encoding="utf-8").read()
     assert "No trades" in html and "No strategy comparison" in html
+
+
+from quant_reporter.strategy import backtest
+
+
+def test_backtest_report_embeds_recommendation(tmp_path):
+    prices = make_synthetic_prices(n_days=700)
+    res = backtest(equal_weight, prices, benchmark="BMK")
+    rec = recommend(prices[["AAA", "BBB", "CCC"]],
+                    current_weights={"AAA": 0.4, "BBB": 0.3, "CCC": 0.3}, **_OFF)
+    path = str(tmp_path / "bt_with_reco.html")
+    res.report(path, recommendation=rec)
+    html = open(path, encoding="utf-8").read()
+    assert "Recommendations" in html and "Growth of $1" in html

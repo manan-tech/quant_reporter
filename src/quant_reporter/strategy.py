@@ -75,9 +75,10 @@ class BacktestResult:
             "dsr": deflated_sharpe_ratio(r, n_trials=self.n_trials),
         }
 
-    def report(self, path="backtest_report.html", open_browser=False):
+    def report(self, path="backtest_report.html", open_browser=False, recommendation=None):
         from .backtest_report import create_backtest_report
-        return create_backtest_report(self, path=path, open_browser=open_browser)
+        return create_backtest_report(self, path=path, open_browser=open_browser,
+                                      recommendation=recommendation)
 
     def plot_wealth(self):
         from .backtest_report import plot_wealth
