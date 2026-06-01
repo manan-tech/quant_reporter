@@ -63,3 +63,32 @@ def test_trend_following_is_causal(cut):
     common = base.index.intersection(shuf.index)
     common = [d for d in common if prices.index.get_loc(d) <= cut]
     pd.testing.assert_frame_equal(base.loc[common], shuf.loc[common])
+
+
+def test_trend_following_drops_warmup_rows():
+    """C1 regression: warmup rows (no valid signal) must be dropped, NOT equal-weighted."""
+    prices = _prices(n=800)
+    sched = trend_following(prices)
+    # Schedule must start well after the lookback warmup (no leading 1/3,1/3,1/3 fill).
+    first_loc = prices.index.get_loc(sched.index[0])
+    assert first_loc >= 200, f"schedule starts at row {first_loc}; warmup not dropped"
+
+
+def test_cross_sectional_momentum_drops_warmup_rows():
+    prices = _prices(n=800)
+    sched = cross_sectional_momentum(prices)
+    first_loc = prices.index.get_loc(sched.index[0])
+    # vol_lookback=63 drives NaN warmup; schedule must start at or after that boundary.
+    assert first_loc >= 63, f"schedule starts at row {first_loc}; warmup not dropped"
+
+
+def test_vol_target_overlay_tilts_toward_low_vol():
+    """I2 regression: overlay must actually change weights (inverse-vol tilt), not be a no-op.
+    In the synthetic fixture AAA has the lowest vol and CCC the highest, so AAA should
+    receive more weight than CCC under the inverse-vol tilt."""
+    overlay = vol_target_overlay(equal_weight, target_vol=0.10)
+    sched = overlay(_prices(n=800))
+    last = sched.iloc[-1]
+    assert last["AAA"] > last["CCC"]
+    # And it must NOT be uniform equal weight (proves it isn't a no-op).
+    assert abs(last["AAA"] - last["CCC"]) > 1e-3

@@ -10,16 +10,24 @@ import pandas as pd
 
 
 def _long_only_schedule(sized, prices):
-    """Clip to long-only, renormalize per row; equal-weight fallback on flat rows."""
+    """Clip to long-only and renormalize each row to sum to 1.
+
+    Rows with any NaN (signal/vol warmup, i.e. undefined) are DROPPED. Rows that
+    are fully defined but all-zero/negative after clipping fall back to equal weight.
+    """
     cols = list(prices.columns)
     n = len(cols)
     long_only = sized.reindex(columns=cols).clip(lower=0)
-    row_sum = long_only.sum(axis=1)
+    valid = ~long_only.isna().any(axis=1)            # fully-defined rows only
+    row_sum = long_only.sum(axis=1)                  # skipna=True (NaN rows -> 0)
     normalized = long_only.div(row_sum.where(row_sum > 0, other=1.0), axis=0)
     eq = pd.DataFrame(1.0 / n, index=normalized.index, columns=cols)
-    mask = pd.DataFrame(np.repeat((row_sum > 0).values[:, None], n, axis=1),
-                        index=normalized.index, columns=cols)
-    return normalized.where(mask, other=eq).dropna(how="any")
+    # Equal-weight fallback ONLY for fully-defined rows that clipped to all-zero.
+    flat_valid = (valid & (row_sum == 0)).values
+    use_eq = pd.DataFrame(np.repeat(flat_valid[:, None], n, axis=1),
+                          index=normalized.index, columns=cols)
+    result = normalized.mask(use_eq, eq)
+    return result.dropna(how="any")                  # drops the NaN warmup rows
 
 
 def equal_weight(prices, **kwargs):
@@ -90,7 +98,15 @@ def cross_sectional_momentum(prices, lookback=126, skip_recent=5, target_vol=0.1
 
 
 def vol_target_overlay(base_fn, target_vol=0.10, vol_lookback=63, max_leverage=2.0):
-    """Higher-order: return a strategy fn that vol-targets base_fn's weights."""
+    """Higher-order: wrap base_fn with an inverse-volatility tilt.
+
+    NOTE: the backtest engine is fully invested (weights renormalize to sum 1),
+    so absolute portfolio-vol targeting (gross-exposure scaling) is not expressible
+    here — a uniform scalar cancels under renormalization. This overlay therefore
+    applies a per-asset inverse-vol tilt: lower-realized-vol assets receive more
+    weight. `target_vol` sets the pre-normalization scale (affects only the
+    max_leverage cap interaction).
+    """
     def _strategy(prices, **kwargs):
         from .signals import volatility_target_positions
         base = base_fn(prices, **kwargs)
@@ -101,11 +117,13 @@ def vol_target_overlay(base_fn, target_vol=0.10, vol_lookback=63, max_leverage=2
         sig = sig.reindex(columns=prices.columns).fillna(0.0)
         sized = volatility_target_positions(sig, prices.pct_change(), target_vol=target_vol,
                                             vol_lookback=vol_lookback, method="ewma",
-                                            max_leverage=max_leverage, scaling="portfolio")
+                                            max_leverage=max_leverage, scaling="per_asset")
         return _long_only_schedule(sized, prices)
     return _strategy
 
 
+# vol_target_overlay is intentionally excluded: it is a factory that requires a
+# base_fn argument, not a zero-arg strategy.
 REGISTRY = {
     "equal_weight": equal_weight,
     "inverse_vol": inverse_vol,
