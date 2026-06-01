@@ -5,6 +5,7 @@ A strategy is any callable (prices, **params) -> weights (dict or DataFrame),
 a Strategy wrapper, or raw weights. backtest() is a thin orchestration over the
 SP1 simulate_strategy engine (which it does NOT replace).
 """
+import warnings
 from dataclasses import dataclass, field
 from functools import cached_property
 from typing import Callable, Optional
@@ -39,6 +40,9 @@ def _resolve_weights(strategy, prices):
 
 @dataclass
 class BacktestResult:
+    """Backtest output. Treat as immutable after construction: `returns`,
+    `metrics`, and `oos_stats` are cached on first access, so mutating the
+    underlying fields afterward yields stale derived values."""
     name: str
     wealth: pd.Series
     weights: pd.DataFrame
@@ -51,13 +55,13 @@ class BacktestResult:
 
     @cached_property
     def returns(self) -> pd.Series:
-        return self.wealth.pct_change().dropna()
+        return self.wealth.pct_change(fill_method=None).dropna()
 
     @cached_property
     def _benchmark_returns(self):
         if self.benchmark is None:
             return None
-        return self.benchmark.pct_change().dropna()
+        return self.benchmark.pct_change(fill_method=None).dropna()
 
     @cached_property
     def metrics(self) -> dict:
@@ -102,6 +106,11 @@ def backtest(strategy, prices, *, rebalance="M", cost_model=None, benchmark=None
     asset_prices = prices
     if benchmark is not None:
         if isinstance(benchmark, str):
+            if benchmark not in prices.columns:
+                raise KeyError(
+                    f"benchmark column {benchmark!r} not found in prices. "
+                    f"Available columns: {list(prices.columns)}"
+                )
             b = prices[benchmark]
             bench_series = (b / b.iloc[0]).rename("Benchmark")
             asset_prices = prices.drop(columns=[benchmark])
@@ -115,6 +124,13 @@ def backtest(strategy, prices, *, rebalance="M", cost_model=None, benchmark=None
 
     if bench_series is not None:
         bench_series = bench_series.reindex(sim["wealth"].index).ffill()
+        if not bench_series.notna().any():
+            warnings.warn(
+                "benchmark has no overlap with the simulation window; benchmark "
+                "metrics (tracking error, information ratio) will be NaN. Pass a "
+                "Series indexed like `prices` (DatetimeIndex) or a benchmark column name.",
+                stacklevel=2,
+            )
 
     return BacktestResult(
         name=name or resolved_name,
@@ -130,6 +146,9 @@ def backtest(strategy, prices, *, rebalance="M", cost_model=None, benchmark=None
 
 
 def backtest_many(strategies, prices, **kwargs) -> dict:
+    """Backtest several strategies. Sets n_trials = number of strategies on every
+    result (for DSR deflation). Any `name` or `n_trials` passed in kwargs are
+    overridden. Other kwargs (benchmark, cost_model, rebalance, ...) pass through."""
     kwargs.pop("name", None)
     kwargs.pop("n_trials", None)
     n = len(strategies)
