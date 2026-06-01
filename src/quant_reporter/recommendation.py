@@ -55,8 +55,8 @@ def recommend_weights(prices, *, objective=neg_sharpe, bounds=None, constraints=
         port_ret, port_vol, sharpe = get_portfolio_stats(w, mean, cov, risk_free_rate)
     weights = {c: float(wi) for c, wi in zip(cols, np.asarray(w, dtype=float))}
     obj_name = getattr(objective, "__name__", str(objective))
-    rationale = (f"Weights chosen by minimizing {obj_name}; resulting Sharpe "
-                 f"{sharpe:.2f} (return {port_ret:.2%}, vol {port_vol:.2%}).")
+    rationale = (f"Weights chosen by optimizing the {obj_name} objective; resulting "
+                 f"Sharpe {sharpe:.2f} (return {port_ret:.2%}, vol {port_vol:.2%}).")
     evidence = {"objective": obj_name, "sharpe": float(sharpe),
                 "expected_return": float(port_ret), "expected_vol": float(port_vol)}
     return RecommendedWeights(weights=weights, objective=obj_name,
