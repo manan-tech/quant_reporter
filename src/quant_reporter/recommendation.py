@@ -95,8 +95,8 @@ def rebalance_trades(current_weights, target_weights, *, cost_model=None, thresh
     orders, held, executed = [], [], {}
     for tk in deltas.index:
         d = float(deltas[tk])
-        if abs(d) == 0:
-            continue                      # no change for this ticker
+        if abs(d) <= 1e-12:
+            continue                      # no change (incl. float-dust deltas)
         if abs(d) < threshold:
             held.append(str(tk))          # inside the no-trade band
             continue
