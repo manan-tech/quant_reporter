@@ -121,3 +121,108 @@ def rebalance_trades(current_weights, target_weights, *, cost_model=None, thresh
         evidence={"turnover": turnover, "est_cost": est_cost,
                   "n_orders": len(orders), "n_held": len(held), "threshold": threshold},
     )
+
+
+@dataclass
+class RiskAlert:
+    kind: str                 # 'vol_breach'|'drawdown_breach'|'concentration'|'sector_cap'|'factor_drift'
+    severity: str             # 'warning' | 'breach'  ('ok' checks emit nothing)
+    rationale: str
+    evidence: dict = field(default_factory=dict)
+
+
+def _severity(value, limit, warn_band=0.9):
+    if value > limit:
+        return "breach"
+    if value >= warn_band * limit:
+        return "warning"
+    return "ok"
+
+
+def risk_alerts(weights, prices, *, vol_target=0.10, max_drawdown_limit=0.20,
+                max_weight=0.40, max_risk_contribution=0.40,
+                sector_map=None, sector_caps=None,
+                factor_returns=None, factor_loading_limit=None):
+    """Limit-breach checks on a weight vector. Returns a (possibly empty) list of
+    RiskAlert; only 'warning'/'breach' checks emit. `weights` tickers must be a
+    subset of `prices` columns. Opinions (limits) are overridable params."""
+    w = pd.Series(weights, dtype=float)
+    asset_prices = prices[list(w.index)]
+    alerts = []
+
+    with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
+        _, cov, _ = get_optimization_inputs(asset_prices)
+
+        # 1. forecast vol vs target
+        fvol = forecast_portfolio_vol(w.to_dict(), cov)
+        sev = _severity(fvol, vol_target)
+        if sev != "ok":
+            alerts.append(RiskAlert("vol_breach", sev,
+                f"Forecast annualized vol {fvol:.2%} vs target {vol_target:.2%}.",
+                {"metric": "forecast_vol", "value": float(fvol),
+                 "threshold": float(vol_target), "comparator": ">"}))
+
+        # 2. historical max drawdown of holding `weights`
+        wealth = get_portfolio_price(asset_prices, w.to_dict())
+        mdd = float(compute_drawdown(wealth).max_dd)   # negative
+        sev = _severity(abs(mdd), max_drawdown_limit)
+        if sev != "ok":
+            alerts.append(RiskAlert("drawdown_breach", sev,
+                f"Historical max drawdown {mdd:.2%} vs limit {-max_drawdown_limit:.2%}.",
+                {"metric": "max_drawdown", "value": mdd,
+                 "threshold": -float(max_drawdown_limit), "comparator": "<"}))
+
+        # 3a. single-name weight concentration
+        max_w = float(w.abs().max())
+        top_w = str(w.abs().idxmax())
+        sev = _severity(max_w, max_weight)
+        if sev != "ok":
+            alerts.append(RiskAlert("concentration", sev,
+                f"Largest position {top_w} at {max_w:.2%} vs cap {max_weight:.2%}.",
+                {"metric": "max_weight", "asset": top_w, "value": max_w,
+                 "threshold": float(max_weight), "comparator": ">"}))
+
+        # 3b. risk-contribution concentration
+        rc = risk_contributions(w.to_dict(), cov)
+        if len(rc) and rc.notna().any() and float(rc.max()) > 0:
+            max_rc = float(rc.max())
+            top_rc = str(rc.idxmax())
+            sev = _severity(max_rc, max_risk_contribution)
+            if sev != "ok":
+                alerts.append(RiskAlert("concentration", sev,
+                    f"{top_rc} drives {max_rc:.2%} of portfolio risk vs cap {max_risk_contribution:.2%}.",
+                    {"metric": "risk_contribution", "asset": top_rc, "value": max_rc,
+                     "threshold": float(max_risk_contribution), "comparator": ">"}))
+
+    # 4. sector caps (only when both provided)
+    if sector_map is not None and sector_caps is not None:
+        sector_w = {}
+        for tk, wi in w.items():
+            sec = sector_map.get(tk)
+            if sec is not None:
+                sector_w[sec] = sector_w.get(sec, 0.0) + float(wi)
+        for sec, cap in sector_caps.items():
+            val = sector_w.get(sec, 0.0)
+            sev = _severity(val, cap)
+            if sev != "ok":
+                alerts.append(RiskAlert("sector_cap", sev,
+                    f"Sector '{sec}' at {val:.2%} vs cap {cap:.2%}.",
+                    {"metric": "sector_weight", "sector": sec, "value": val,
+                     "threshold": float(cap), "comparator": ">"}))
+
+    # 5. factor drift (only when factor_returns AND a limit are provided)
+    if factor_returns is not None and factor_loading_limit is not None:
+        rets = asset_prices.pct_change(fill_method=None).dropna()
+        betas = compute_asset_factor_exposures(rets, factor_returns)   # N x K
+        aligned_w = w.reindex(betas.index).fillna(0.0)
+        port_load = betas.mul(aligned_w, axis=0).sum(axis=0)           # per-factor
+        for fac, load in port_load.items():
+            sev = _severity(abs(float(load)), factor_loading_limit)
+            if sev != "ok":
+                alerts.append(RiskAlert("factor_drift", sev,
+                    f"Factor '{fac}' loading {float(load):.2f} exceeds limit "
+                    f"+/-{factor_loading_limit:.2f}.",
+                    {"metric": "factor_loading", "factor": str(fac), "value": float(load),
+                     "threshold": float(factor_loading_limit), "comparator": "abs>"}))
+
+    return alerts

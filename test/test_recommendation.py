@@ -5,6 +5,7 @@ import pytest
 
 from quant_reporter.recommendation import recommend_weights, RecommendedWeights
 from quant_reporter.recommendation import rebalance_trades, Trade, RebalancePlan
+from quant_reporter.recommendation import risk_alerts, RiskAlert
 from quant_reporter.objectives import neg_sharpe
 from quant_reporter.opt_core import get_optimization_inputs, get_portfolio_stats
 from conftest import make_synthetic_prices
@@ -73,3 +74,65 @@ def test_rebalance_no_trades_when_identical():
     plan = rebalance_trades(w, w)
     assert plan.orders == [] and plan.turnover == pytest.approx(0.0)
     assert plan.est_cost == pytest.approx(0.0)
+
+
+_EQ = {"AAA": 1 / 3, "BBB": 1 / 3, "CCC": 1 / 3}
+_OFF = dict(vol_target=99, max_drawdown_limit=99, max_weight=0.99, max_risk_contribution=0.99)
+
+
+def test_no_alerts_when_within_all_limits():
+    assert risk_alerts(_EQ, _prices(), **_OFF) == []
+
+
+def test_concentration_breach_fires():
+    alerts = risk_alerts({"AAA": 0.8, "BBB": 0.1, "CCC": 0.1}, _prices(),
+                         vol_target=99, max_drawdown_limit=99,
+                         max_weight=0.40, max_risk_contribution=0.99)
+    conc = [a for a in alerts if a.evidence.get("metric") == "max_weight"]
+    assert conc and conc[0].kind == "concentration" and conc[0].severity == "breach"
+    assert conc[0].evidence["asset"] == "AAA"
+    assert conc[0].evidence["value"] == pytest.approx(0.8)
+
+
+def test_concentration_warning_in_band():
+    # max weight 0.38, cap 0.40, warn band 0.36 -> warning
+    alerts = risk_alerts({"AAA": 0.38, "BBB": 0.32, "CCC": 0.30}, _prices(),
+                         vol_target=99, max_drawdown_limit=99,
+                         max_weight=0.40, max_risk_contribution=0.99)
+    conc = [a for a in alerts if a.evidence.get("metric") == "max_weight"]
+    assert conc and conc[0].severity == "warning"
+
+
+def test_vol_breach_fires_with_tiny_target():
+    alerts = risk_alerts(_EQ, _prices(), vol_target=1e-6, max_drawdown_limit=99,
+                         max_weight=0.99, max_risk_contribution=0.99)
+    vb = [a for a in alerts if a.kind == "vol_breach"]
+    assert vb and vb[0].severity == "breach"
+    assert vb[0].evidence["value"] > vb[0].evidence["threshold"]
+
+
+def test_drawdown_breach_fires_with_tiny_limit():
+    alerts = risk_alerts(_EQ, _prices(), max_drawdown_limit=1e-6, vol_target=99,
+                         max_weight=0.99, max_risk_contribution=0.99)
+    assert any(a.kind == "drawdown_breach" for a in alerts)
+
+
+def test_sector_cap_breach():
+    alerts = risk_alerts({"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}, _prices(),
+                         sector_map={"AAA": "Tech", "BBB": "Tech", "CCC": "Energy"},
+                         sector_caps={"Tech": 0.5}, **_OFF)
+    sect = [a for a in alerts if a.kind == "sector_cap"]
+    assert sect and sect[0].evidence["sector"] == "Tech"
+    assert sect[0].evidence["value"] == pytest.approx(0.8)
+
+
+def test_factor_drift_silent_without_inputs():
+    assert not any(a.kind == "factor_drift" for a in risk_alerts(_EQ, _prices(), **_OFF))
+
+
+def test_factor_drift_fires_with_tiny_limit():
+    rng = np.random.default_rng(0)
+    fac = pd.DataFrame(rng.normal(0, 0.01, (len(_prices()) - 1, 2)),
+                       index=_prices().index[1:], columns=["MKT", "SMB"])
+    alerts = risk_alerts(_EQ, _prices(), factor_returns=fac, factor_loading_limit=1e-9, **_OFF)
+    assert any(a.kind == "factor_drift" for a in alerts)
