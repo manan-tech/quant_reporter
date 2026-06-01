@@ -6,8 +6,12 @@ import pytest
 from quant_reporter.recommendation import recommend_weights, RecommendedWeights
 from quant_reporter.recommendation import rebalance_trades, Trade, RebalancePlan
 from quant_reporter.recommendation import risk_alerts, RiskAlert
+from quant_reporter.recommendation import compare_verdict, StrategyVerdict
 from quant_reporter.objectives import neg_sharpe
 from quant_reporter.opt_core import get_optimization_inputs, get_portfolio_stats
+from quant_reporter.strategy import backtest_many
+from quant_reporter.strategies import equal_weight, risk_parity
+from quant_reporter.performance_stats import compare_strategies_oos
 from conftest import make_synthetic_prices
 
 
@@ -136,3 +140,37 @@ def test_factor_drift_fires_with_tiny_limit():
                        index=_prices().index[1:], columns=["MKT", "SMB"])
     alerts = risk_alerts(_EQ, _prices(), factor_returns=fac, factor_loading_limit=1e-9, **_OFF)
     assert any(a.kind == "factor_drift" for a in alerts)
+
+
+def _results(n=700, seed=3):
+    prices = make_synthetic_prices(seed=seed, n_days=n)   # AAA/BBB/CCC + BMK
+    return backtest_many({"EW": equal_weight, "RP": risk_parity}, prices, benchmark="BMK")
+
+
+def test_compare_verdict_picks_best_by_dsr():
+    results = _results()
+    v = compare_verdict(results)
+    assert isinstance(v, StrategyVerdict)
+    cmp = compare_strategies_oos({k: r.returns for k, r in results.items()}, n_trials=2)
+    assert v.winner == cmp["best_by_dsr"]
+    assert v.ranking[0]["name"] == v.winner
+
+
+def test_compare_verdict_evidence_has_summary():
+    v = compare_verdict(_results())
+    assert set(v.evidence["summary"]) == {"EW", "RP"}
+    assert v.evidence["select_by"] == "dsr"
+    assert v.evidence["n_trials"] == 2
+
+
+def test_compare_verdict_single_result_no_comparison():
+    prices = make_synthetic_prices(n_days=700)
+    results = backtest_many({"EW": equal_weight}, prices)
+    v = compare_verdict(results)
+    assert v.winner == "EW"
+    assert "no comparison" in v.rationale.lower()
+
+
+def test_compare_verdict_empty():
+    v = compare_verdict({})
+    assert v.winner is None and v.ranking == []

@@ -226,3 +226,52 @@ def risk_alerts(weights, prices, *, vol_target=0.10, max_drawdown_limit=0.20,
                      "threshold": float(factor_loading_limit), "comparator": "abs>"}))
 
     return alerts
+
+
+@dataclass
+class StrategyVerdict:
+    winner: Optional[str]
+    ranking: list             # ordered [{'name','sharpe','psr','dsr'}, ...]
+    rationale: str
+    evidence: dict = field(default_factory=dict)
+
+
+def compare_verdict(results, *, select_by="dsr", benchmark=None):
+    """Rank a dict[str, BacktestResult] by deflated Sharpe (consumes them; does
+    not re-backtest). `benchmark` is an optional periodic-returns Series used only
+    for 'vs Benchmark' p-values."""
+    if not results:
+        return StrategyVerdict(None, [], "No strategies to compare.", {"summary": {}})
+    returns_dict = {nm: res.returns for nm, res in results.items()}
+    bench_returns = None
+    if benchmark is not None:
+        bench_returns = benchmark.dropna() if isinstance(benchmark, pd.Series) else pd.Series(benchmark)
+    cmp = compare_strategies_oos(returns_dict, benchmark_returns=bench_returns,
+                                 n_trials=len(results))
+    summary = cmp["summary"]
+
+    def _key(name):
+        v = summary[name].get(select_by, float("nan"))
+        return v if np.isfinite(v) else float("-inf")
+
+    if select_by == "dsr":
+        winner = cmp["best_by_dsr"]
+    else:
+        usable = [k for k in summary if np.isfinite(summary[k].get(select_by, float("nan")))]
+        winner = max(usable, key=_key) if usable else None
+    ranking = sorted(({"name": nm, **summary[nm]} for nm in summary),
+                     key=lambda d: _key(d["name"]), reverse=True)
+
+    if winner is None:
+        rationale = "No strategy had a well-defined selection metric; no winner."
+    elif len(results) == 1:
+        rationale = f"Only one strategy ('{winner}'); no comparison performed."
+    else:
+        wm = summary[winner]
+        rationale = (f"'{winner}' wins by {select_by.upper()} (DSR {wm['dsr']:.2f}, "
+                     f"PSR {wm['psr']:.2f}, Sharpe {wm['sharpe']:.2f}) across "
+                     f"{len(results)} strategies.")
+    return StrategyVerdict(
+        winner=winner, ranking=ranking, rationale=rationale,
+        evidence={"select_by": select_by, "summary": summary,
+                  "pvalues": cmp["sharpe_diff_pvalues"], "n_trials": len(results)})
