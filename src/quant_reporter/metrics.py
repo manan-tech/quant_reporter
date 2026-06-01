@@ -61,9 +61,11 @@ def _underwater(returns):
     r = _series(returns)
     if len(r) == 0:
         return pd.Series([], dtype=float)
-    growth = (1.0 + r).cumprod()
+    growth = pd.concat([pd.Series([1.0]), (1.0 + r).cumprod().reset_index(drop=True)],
+                       ignore_index=True)
     peak = growth.cummax()
-    return (growth - peak) / peak
+    uw = (growth - peak) / peak
+    return uw.iloc[1:]   # drop the synthetic starting row
 
 
 def cagr(returns, periods_per_year=TRADING_DAYS):
