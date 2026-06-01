@@ -45,3 +45,6 @@ IMPLEMENTATION_PLAN.md
 HANDOFF.md
 council-report-*.html
 council-transcript-*.md
+
+# Generated gallery HTML — published to the gh-pages branch, kept out of main
+site/

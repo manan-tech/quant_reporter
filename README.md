@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/manan-tech/quant_reporter/actions/workflows/ci.yml/badge.svg)](https://github.com/manan-tech/quant_reporter/actions/workflows/ci.yml)
 [![PyPI version](https://img.shields.io/pypi/v/quant-reporter.svg)](https://pypi.org/project/quant-reporter/)
+[![Downloads](https://static.pepy.tech/badge/quant-reporter)](https://pepy.tech/project/quant-reporter)
 [![Python versions](https://img.shields.io/pypi/pyversions/quant-reporter.svg)](https://pypi.org/project/quant-reporter/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -30,6 +31,8 @@ qr.create_portfolio_report(
 ```
 
 That's the whole loop: a `{ticker: weight}` dict in, an interactive report out. Everything below (optimization, backtesting, Black-Litterman, custom data sources) is optional depth.
+
+**See it without installing:** browse the [example report gallery](https://manan-tech.github.io/quant_reporter/) (60/40, All-Weather, Magnificent 7, Bogleheads 3-fund) or run the [zero-setup Colab notebook](https://colab.research.google.com/github/manan-tech/quant_reporter/blob/main/examples/gallery/quant_reporter_gallery.ipynb).
 
 > **Version note:** the last release on PyPI was `1.1.1`. `2.0.0` was an internal milestone and was **never published**, so `2.1.0` is the first 2.x release you can `pip install`. The 1.x → 2.x change is breaking (see [Migrating from 1.x](#migrating-from-1x)).
 >
