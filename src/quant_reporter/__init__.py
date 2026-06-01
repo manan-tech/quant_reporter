@@ -189,4 +189,28 @@ from .asset_info import (
     build_asset_info_table,
 )
 
+# --- SP-Strategy: shared metrics library ---
+from .metrics import (
+    cagr, annual_volatility, sharpe, sortino, calmar, omega,
+    max_drawdown, avg_drawdown, ulcer_index, value_at_risk, conditional_var,
+    downside_deviation, tracking_error, information_ratio, hit_rate,
+    win_loss_ratio, tail_ratio, skewness, kurtosis, summary_metrics,
+)
+
+# --- SP-Strategy: objectives / loss surface ---
+from .objectives import (
+    neg_sharpe, variance, cvar_objective, tracking_error_objective,
+    mean_squared_error, mean_absolute_error,
+)
+
+# --- SP-Strategy: prebuilt strategies ---
+from .strategies import (
+    equal_weight, inverse_vol, min_variance, risk_parity, max_sharpe,
+    trend_following, cross_sectional_momentum, vol_target_overlay, REGISTRY,
+)
+
+# --- SP-Strategy: strategy runner + result + report ---
+from .strategy import Strategy, backtest, backtest_many, BacktestResult
+from .backtest_report import create_backtest_report
+
 __version__ = "2.0.0"
