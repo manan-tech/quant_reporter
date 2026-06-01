@@ -338,5 +338,118 @@ def regularize_covariance(cov_matrix: pd.DataFrame, threshold: float = 1e10) -> 
         logger.info(f"Regularized condition number: {condition_number_reg:.2e}")
         
         return pd.DataFrame(cov_array_reg, index=cov_matrix.index, columns=cov_matrix.columns)
-    
+
     return cov_matrix
+
+
+# ---------------------------------------------------------------------------
+# SP2 Phase 4: risk decomposition + risk-budget optimization + CVaR
+# ---------------------------------------------------------------------------
+
+def risk_contributions(weights, cov_matrix):
+    """Marginal risk contributions per asset (percentage of total portfolio risk).
+
+    MRC_i = w_i * (Σw)_i / σ_p.  Contributions sum to 1.0 if σ_p > 0.
+
+    Args:
+        weights: dict {ticker: weight} or array-like aligned with cov_matrix.
+        cov_matrix: annualized covariance DataFrame or ndarray.
+
+    Returns:
+        pd.Series indexed by asset name (or integer if no names) of fractional
+        risk contributions summing to 1.0.  Returns zeros if portfolio vol == 0.
+    """
+    if isinstance(weights, dict):
+        cols = list(cov_matrix.columns) if hasattr(cov_matrix, "columns") else None
+        if cols is None:
+            raise ValueError("cov_matrix must be a DataFrame when weights is a dict.")
+        w = np.array([weights.get(c, 0.0) for c in cols], dtype=float)
+        names = cols
+    else:
+        w = np.asarray(weights, dtype=float)
+        names = list(cov_matrix.columns) if hasattr(cov_matrix, "columns") else list(range(len(w)))
+    cov = cov_matrix.values if hasattr(cov_matrix, "values") else np.asarray(cov_matrix)
+    port_var = float(w @ cov @ w)
+    port_vol = np.sqrt(max(0.0, port_var))
+    if port_vol < 1e-14:
+        return pd.Series(0.0, index=names)
+    mrc = w * (cov @ w) / port_vol
+    return pd.Series(mrc / port_vol, index=names)
+
+
+def optimize_risk_budget(cov_matrix, budget=None):
+    """Equal or custom risk-budget portfolio via SLSQP.
+
+    Minimizes sum_i sum_j (RC_i - b_i)^2 subject to weights >= 0, sum == 1.
+    For equal risk budget (budget=None), b_i = 1/N for all i.
+
+    Args:
+        cov_matrix: annualized covariance DataFrame.
+        budget: dict {ticker: target_fraction} or None for equal risk parity.
+                Budget fractions must be positive and will be normalized to sum to 1.
+
+    Returns:
+        dict: {'weights': dict {ticker: weight}, 'risk_contributions': Series,
+               'success': bool, 'message': str}
+    """
+    cols = list(cov_matrix.columns)
+    n = len(cols)
+    cov = cov_matrix.values
+
+    if budget is None:
+        b = np.ones(n) / n
+    else:
+        b_raw = np.array([budget.get(c, 0.0) for c in cols], dtype=float)
+        if b_raw.sum() <= 0:
+            raise ValueError("budget values must be positive and sum > 0.")
+        b = b_raw / b_raw.sum()
+
+    def _objective(w):
+        port_var = float(w @ cov @ w)
+        port_vol = np.sqrt(max(port_var, 1e-30))
+        rc = w * (cov @ w) / port_vol
+        rc_frac = rc / port_vol
+        return float(np.sum((rc_frac - b) ** 2))
+
+    w0 = np.ones(n) / n
+    bounds = [(1e-6, 1.0)] * n
+    constraints = [{"type": "eq", "fun": lambda w: np.sum(w) - 1.0}]
+
+    result = sco.minimize(_objective, w0, method="SLSQP", bounds=bounds,
+                          constraints=constraints, options={"ftol": 1e-12, "maxiter": 500})
+
+    w_opt = np.clip(result.x, 0.0, 1.0)
+    w_opt = w_opt / w_opt.sum()
+    rc = risk_contributions(dict(zip(cols, w_opt)), cov_matrix)
+    return {
+        "weights": dict(zip(cols, w_opt)),
+        "risk_contributions": rc,
+        "success": result.success,
+        "message": result.message,
+    }
+
+
+def portfolio_cvar(returns, confidence=0.95, periods_per_year=252):
+    """Historical Conditional Value-at-Risk (expected shortfall), annualized.
+
+    CVaR at level α = −E[r | r ≤ VaR_α], where VaR_α is the α-quantile of returns.
+    Annualized by multiplying by sqrt(periods_per_year) (assuming i.i.d. daily returns).
+
+    Args:
+        returns: Series (or 1-D array) of periodic portfolio returns.
+        confidence: confidence level α ∈ (0, 1), e.g. 0.95 → 5% tail.
+        periods_per_year: annualization factor.
+
+    Returns:
+        float: annualized CVaR (positive number = expected loss in the tail).
+               Returns NaN if fewer than 2 observations.
+    """
+    r = pd.Series(returns).dropna()
+    if len(r) < 2:
+        return float("nan")
+    var_threshold = float(r.quantile(1 - confidence))
+    tail = r[r <= var_threshold]
+    if tail.empty:
+        return float("nan")
+    daily_cvar = float(-tail.mean())
+    return daily_cvar * np.sqrt(periods_per_year)

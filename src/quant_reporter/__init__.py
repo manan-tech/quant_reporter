@@ -148,4 +148,45 @@ from .performance_stats import (
 # --- Walk-Forward (schedule unlock) ---
 from .validation_report import run_rolling_windows
 
+# --- SP2 Phase 3: Risk overlays & position sizing ---
+from .sizing import (
+    forecast_portfolio_vol,
+    target_volatility_scalar,
+    inverse_volatility_weights,
+    realized_tracking_error,
+    kelly_fraction,
+    cppi_weights,
+)
+
+# --- SP2 Phase 4: Advanced risk decomposition & CVaR ---
+from .opt_core import (
+    risk_contributions,
+    optimize_risk_budget,
+    portfolio_cvar,
+)
+
+# --- SP2 Phase 5: Tactical signals ---
+from .signals import (
+    time_series_momentum_signal,
+    moving_average_crossover_signal,
+    cross_sectional_momentum_score,
+    zscore_reversion_signal,
+)
+
+# --- SP2 Phase 6: Factor tilts ---
+from .factor_tilts import (
+    characteristic_tilt_weights,
+    factor_neutralize_returns,
+    resample_portfolio,
+)
+
+# --- SP3: Per-asset info layer ---
+from .asset_info import (
+    compute_asset_analytics,
+    compute_asset_factor_exposures,
+    get_asset_fundamentals,
+    narrate_asset,
+    build_asset_info_table,
+)
+
 __version__ = "2.0.0"

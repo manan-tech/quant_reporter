@@ -159,3 +159,142 @@ def test_vol_target_positions_causal_under_future_shuffle(cut):
     shuf = volatility_target_positions(signal, shuffled, target_vol=0.1, vol_lookback=40,
                                        method="simple", scaling="per_asset")
     pd.testing.assert_frame_equal(base.iloc[: cut + 1], shuf.iloc[: cut + 1])
+
+
+# ---------------------------------------------------------------------------
+# Tactical signals (SP2 Phase 5)
+# ---------------------------------------------------------------------------
+
+from quant_reporter.signals import (
+    time_series_momentum_signal,
+    moving_average_crossover_signal,
+    cross_sectional_momentum_score,
+    zscore_reversion_signal,
+)
+
+
+def _prices(n=400, seed=3, cols=("AAA", "BBB")):
+    from conftest import make_synthetic_prices
+    return make_synthetic_prices(seed=seed, n_days=n, assets=cols, benchmark="BMK")[list(cols)]
+
+
+# time_series_momentum_signal ---
+
+def test_tsm_output_values_are_pm1_or_nan():
+    sig = time_series_momentum_signal(_prices(), lookback=252, skip_recent=21)
+    valid = sig.stack().dropna()
+    assert set(valid.unique()).issubset({-1.0, 0.0, 1.0})
+
+
+def test_tsm_warmup_rows_are_nan():
+    sig = time_series_momentum_signal(_prices(n=400), lookback=252, skip_recent=21)
+    # First `lookback` rows must be NaN (can't look back 252 periods into the past)
+    assert sig.iloc[:252].isna().all(axis=None)
+
+
+def test_tsm_same_shape_as_prices():
+    prices = _prices()
+    sig = time_series_momentum_signal(prices, lookback=100, skip_recent=5)
+    assert sig.shape == prices.shape
+
+
+@settings(max_examples=20, deadline=None)
+@given(cut=st.integers(min_value=260, max_value=360))
+def test_tsm_causal(cut):
+    prices = _prices(n=400, seed=5)
+    base = time_series_momentum_signal(prices, lookback=252, skip_recent=21)
+    shuffled = prices.copy()
+    rng = np.random.default_rng(42)
+    tail = np.arange(cut + 1, len(prices))
+    shuffled.iloc[cut + 1:] = prices.iloc[rng.permutation(tail)].values
+    shuf = time_series_momentum_signal(shuffled, lookback=252, skip_recent=21)
+    pd.testing.assert_frame_equal(base.iloc[:cut + 1], shuf.iloc[:cut + 1])
+
+
+# moving_average_crossover_signal ---
+
+def test_mac_output_values_are_pm1_or_nan():
+    sig = moving_average_crossover_signal(_prices(), fast=20, slow=60)
+    valid = sig.stack().dropna()
+    assert set(valid.unique()).issubset({-1.0, 0.0, 1.0})
+
+
+def test_mac_warmup_rows_are_nan():
+    # rolling(slow, min_periods=slow) first produces a value at index slow-1 (0-indexed)
+    sig = moving_average_crossover_signal(_prices(n=300), fast=10, slow=50)
+    assert sig.iloc[:49].isna().all(axis=None)
+
+
+def test_mac_requires_fast_less_than_slow():
+    with pytest.raises(ValueError):
+        moving_average_crossover_signal(_prices(), fast=100, slow=50)
+
+
+@settings(max_examples=20, deadline=None)
+@given(cut=st.integers(min_value=70, max_value=150))
+def test_mac_causal(cut):
+    prices = _prices(n=200, seed=9)
+    base = moving_average_crossover_signal(prices, fast=10, slow=50)
+    shuffled = prices.copy()
+    rng = np.random.default_rng(55)
+    tail = np.arange(cut + 1, len(prices))
+    shuffled.iloc[cut + 1:] = prices.iloc[rng.permutation(tail)].values
+    shuf = moving_average_crossover_signal(shuffled, fast=10, slow=50)
+    pd.testing.assert_frame_equal(base.iloc[:cut + 1], shuf.iloc[:cut + 1])
+
+
+# cross_sectional_momentum_score ---
+
+def test_csm_same_shape():
+    prices = _prices()
+    sig = cross_sectional_momentum_score(prices, lookback=100, skip_recent=5)
+    assert sig.shape == prices.shape
+
+
+def test_csm_cross_section_zero_mean():
+    prices = _prices(n=400, cols=("AAA", "BBB", "CCC"))
+    from conftest import make_synthetic_prices
+    prices = make_synthetic_prices(n_days=400)[["AAA", "BBB", "CCC"]]
+    sig = cross_sectional_momentum_score(prices, lookback=100, skip_recent=5)
+    row_means = sig.dropna(how="any").mean(axis=1)
+    assert np.allclose(row_means.values, 0.0, atol=1e-10)
+
+
+@settings(max_examples=20, deadline=None)
+@given(cut=st.integers(min_value=110, max_value=160))
+def test_csm_causal(cut):
+    prices = _prices(n=200, seed=7)
+    base = cross_sectional_momentum_score(prices, lookback=100, skip_recent=5)
+    shuffled = prices.copy()
+    rng = np.random.default_rng(77)
+    tail = np.arange(cut + 1, len(prices))
+    shuffled.iloc[cut + 1:] = prices.iloc[rng.permutation(tail)].values
+    shuf = cross_sectional_momentum_score(shuffled, lookback=100, skip_recent=5)
+    pd.testing.assert_frame_equal(base.iloc[:cut + 1], shuf.iloc[:cut + 1])
+
+
+# zscore_reversion_signal ---
+
+def test_zsr_same_shape():
+    prices = _prices()
+    sig = zscore_reversion_signal(prices, lookback=20)
+    assert sig.shape == prices.shape
+
+
+def test_zsr_warmup_rows_nan():
+    # rolling(lookback, min_periods=lookback) first valid at index lookback-1
+    sig = zscore_reversion_signal(_prices(n=200), lookback=30)
+    assert sig.iloc[:29].isna().all(axis=None)
+
+
+@settings(max_examples=20, deadline=None)
+@given(cut=st.integers(min_value=35, max_value=100))
+def test_zsr_causal(cut):
+    prices = _prices(n=150, seed=4)
+    base = zscore_reversion_signal(prices, lookback=20)
+    shuffled = prices.copy()
+    rng = np.random.default_rng(33)
+    tail = np.arange(cut + 1, len(prices))
+    shuffled.iloc[cut + 1:] = prices.iloc[rng.permutation(tail)].values
+    shuf = zscore_reversion_signal(shuffled, lookback=20)
+    pd.testing.assert_frame_equal(base.iloc[:cut + 1], shuf.iloc[:cut + 1])
