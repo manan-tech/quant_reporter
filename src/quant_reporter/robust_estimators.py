@@ -32,17 +32,20 @@ def _constant_correlation_target(S):
 def _lw_constant_correlation_delta(Xc, S, F, r_bar):
     """Optimal shrinkage intensity for the constant-correlation target (LW 2004)."""
     T, n = Xc.shape
-    # pi: sum of asymptotic variances of sample-cov entries
-    Xc2 = Xc ** 2
-    pi_mat = (Xc2.T @ Xc2) / T - S ** 2
-    pi_hat = pi_mat.sum()
-    # rho: estimator of sum of asy covariances between F and S entries
-    d = np.sqrt(np.diag(S))
-    # theta_ii,ij terms
-    term1 = ((Xc ** 3).T @ Xc) / T - np.diag(S)[:, None] * S
-    term2 = ((Xc).T @ (Xc ** 3)) / T - np.diag(S)[None, :] * S
-    theta_ii = term1  # (i diag with ij)
-    theta_jj = term2
+    # Suppress spurious BLAS divide/overflow/invalid warnings from macOS Accelerate
+    # matmul on intermediate arrays that are provably finite in the final result.
+    with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
+        # pi: sum of asymptotic variances of sample-cov entries
+        Xc2 = Xc ** 2
+        pi_mat = (Xc2.T @ Xc2) / T - S ** 2
+        pi_hat = pi_mat.sum()
+        # rho: estimator of sum of asy covariances between F and S entries
+        d = np.sqrt(np.diag(S))
+        # theta_ii,ij terms
+        term1 = ((Xc ** 3).T @ Xc) / T - np.diag(S)[:, None] * S
+        term2 = ((Xc).T @ (Xc ** 3)) / T - np.diag(S)[None, :] * S
+        theta_ii = term1  # (i diag with ij)
+        theta_jj = term2
     ratio_ji = np.outer(1.0 / d, d)  # sqrt(S_jj/S_ii)
     ratio_ij = np.outer(d, 1.0 / d)  # sqrt(S_ii/S_jj)
     rho_off = (r_bar / 2.0) * (ratio_ji * theta_ii + ratio_ij * theta_jj)

@@ -100,3 +100,13 @@ def test_lw_rejects_zero_variance_asset():
     r_bad["AAA"] = 0.001  # constant column, zero variance
     with pytest.raises(ValueError, match="Zero or non-finite variance"):
         ledoit_wolf_covariance(r_bad)
+
+
+def test_lw_no_blas_runtime_warnings():
+    """matmul in _lw_constant_correlation_delta must not leak BLAS RuntimeWarnings."""
+    import warnings
+    prices = make_synthetic_prices()[["AAA", "BBB", "CCC"]]
+    returns = prices.pct_change().dropna()
+    with warnings.catch_warnings():
+        warnings.filterwarnings("error", category=RuntimeWarning)
+        ledoit_wolf_covariance(returns)  # must not raise
