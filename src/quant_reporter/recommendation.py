@@ -263,6 +263,7 @@ def compare_verdict(results, *, select_by="dsr", benchmark=None):
                      key=lambda d: _key(d["name"]), reverse=True)
 
     if winner is None:
+        ranking = []  # no well-defined metric to order by; keep ranking[0]==winner invariant
         rationale = "No strategy had a well-defined selection metric; no winner."
     elif len(results) == 1:
         rationale = f"Only one strategy ('{winner}'); no comparison performed."
