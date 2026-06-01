@@ -276,3 +276,81 @@ def compare_verdict(results, *, select_by="dsr", benchmark=None):
         winner=winner, ranking=ranking, rationale=rationale,
         evidence={"select_by": select_by, "summary": summary,
                   "pvalues": cmp["sharpe_diff_pvalues"], "n_trials": len(results)})
+
+
+@dataclass
+class Recommendation:
+    target_weights: RecommendedWeights
+    trades: Optional[RebalancePlan]
+    alerts: list              # list[RiskAlert]
+    verdict: Optional[StrategyVerdict]
+
+    def to_dict(self):
+        return {
+            "target_weights": {
+                "weights": self.target_weights.weights,
+                "objective": self.target_weights.objective,
+                "rationale": self.target_weights.rationale,
+                "evidence": self.target_weights.evidence,
+            },
+            "trades": None if self.trades is None else {
+                "orders": [vars(o) for o in self.trades.orders],
+                "turnover": self.trades.turnover, "est_cost": self.trades.est_cost,
+                "held": self.trades.held, "rationale": self.trades.rationale,
+                "evidence": self.trades.evidence,
+            },
+            "alerts": [vars(a) for a in self.alerts],
+            "verdict": None if self.verdict is None else {
+                "winner": self.verdict.winner, "ranking": self.verdict.ranking,
+                "rationale": self.verdict.rationale, "evidence": self.verdict.evidence,
+            },
+        }
+
+    def to_text(self):
+        lines = ["RECOMMENDATION", "=" * 40,
+                 f"Target weights ({self.target_weights.objective}):"]
+        for tk, wt in self.target_weights.weights.items():
+            lines.append(f"  {tk:8s} {wt:7.2%}")
+        lines.append(f"  -> {self.target_weights.rationale}")
+        if self.trades is not None:
+            lines += ["", f"Rebalance: {self.trades.rationale}"]
+            for o in self.trades.orders:
+                lines.append(f"  {o.side.upper():4s} {o.ticker:8s} "
+                             f"{o.current_weight:7.2%} -> {o.target_weight:7.2%}")
+        lines.append("")
+        if self.alerts:
+            lines.append("Risk alerts:")
+            for a in self.alerts:
+                lines.append(f"  [{a.severity.upper()}] {a.kind}: {a.rationale}")
+        else:
+            lines.append("Risk alerts: none")
+        if self.verdict is not None:
+            lines += ["", f"Verdict: {self.verdict.rationale}"]
+        return "\n".join(lines)
+
+    def to_html(self, path=None, open_browser=False):
+        from .recommendation_report import create_recommendation_report
+        return create_recommendation_report(self, path=path, open_browser=open_browser)
+
+
+def recommend(prices, *, current_weights=None, objective=neg_sharpe, results=None,
+              cost_model=None, threshold=0.0, vol_target=0.10, max_drawdown_limit=0.20,
+              max_weight=0.40, max_risk_contribution=0.40, sector_map=None,
+              sector_caps=None, factor_returns=None, factor_loading_limit=None,
+              risk_free_rate=0.02):
+    """Opt-in recommendation bundle. `prices` are asset prices only. Alerts run on
+    `current_weights` when given, else on the recommended target."""
+    target = recommend_weights(prices, objective=objective, risk_free_rate=risk_free_rate)
+    trades = None
+    if current_weights is not None:
+        trades = rebalance_trades(current_weights, target.weights,
+                                  cost_model=cost_model, threshold=threshold)
+    alert_weights = current_weights if current_weights is not None else target.weights
+    alerts = risk_alerts(alert_weights, prices, vol_target=vol_target,
+                         max_drawdown_limit=max_drawdown_limit, max_weight=max_weight,
+                         max_risk_contribution=max_risk_contribution,
+                         sector_map=sector_map, sector_caps=sector_caps,
+                         factor_returns=factor_returns,
+                         factor_loading_limit=factor_loading_limit)
+    verdict = compare_verdict(results) if results else None
+    return Recommendation(target_weights=target, trades=trades, alerts=alerts, verdict=verdict)

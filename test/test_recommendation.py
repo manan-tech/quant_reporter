@@ -7,6 +7,7 @@ from quant_reporter.recommendation import recommend_weights, RecommendedWeights
 from quant_reporter.recommendation import rebalance_trades, Trade, RebalancePlan
 from quant_reporter.recommendation import risk_alerts, RiskAlert
 from quant_reporter.recommendation import compare_verdict, StrategyVerdict
+from quant_reporter.recommendation import recommend, Recommendation
 from quant_reporter.objectives import neg_sharpe
 from quant_reporter.opt_core import get_optimization_inputs, get_portfolio_stats
 from quant_reporter.strategy import backtest_many
@@ -174,3 +175,44 @@ def test_compare_verdict_single_result_no_comparison():
 def test_compare_verdict_empty():
     v = compare_verdict({})
     assert v.winner is None and v.ranking == []
+
+
+def test_recommend_bundle_full():
+    prices = _prices(n=700)
+    results = backtest_many({"EW": equal_weight, "RP": risk_parity},
+                            make_synthetic_prices(n_days=700), benchmark="BMK")
+    rec = recommend(prices, current_weights={"AAA": 0.5, "BBB": 0.3, "CCC": 0.2},
+                    results=results, **_OFF)
+    assert isinstance(rec, Recommendation)
+    assert isinstance(rec.target_weights, RecommendedWeights)
+    assert isinstance(rec.trades, RebalancePlan)
+    assert isinstance(rec.alerts, list)
+    assert isinstance(rec.verdict, StrategyVerdict)
+
+
+def test_recommend_no_current_weights_no_trades_no_verdict():
+    rec = recommend(_prices(n=700), **_OFF)
+    assert rec.trades is None
+    assert rec.verdict is None
+
+
+def test_recommend_alerts_target_when_no_current():
+    # no current_weights -> alerts run on the recommended target; tiny name cap
+    # almost surely trips a concentration alert
+    rec = recommend(_prices(n=700), vol_target=99, max_drawdown_limit=99,
+                    max_weight=1e-6, max_risk_contribution=0.99)
+    assert any(a.kind == "concentration" for a in rec.alerts)
+
+
+def test_recommendation_to_dict_keys():
+    rec = recommend(_prices(n=700), current_weights={"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}, **_OFF)
+    d = rec.to_dict()
+    assert set(d) == {"target_weights", "trades", "alerts", "verdict"}
+    assert d["trades"]["orders"] and isinstance(d["alerts"], list)
+    assert d["verdict"] is None
+
+
+def test_recommendation_to_text_is_string():
+    rec = recommend(_prices(n=700), current_weights={"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}, **_OFF)
+    txt = rec.to_text()
+    assert isinstance(txt, str) and "RECOMMENDATION" in txt
