@@ -1,7 +1,6 @@
 # test/test_recommendation_report.py
 import os
-import numpy as np
-import pandas as pd
+
 import pytest
 
 from quant_reporter.recommendation import recommend

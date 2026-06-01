@@ -44,7 +44,7 @@ def _verdict_table_html(verdict):
     if verdict is None or not verdict.ranking:
         return "<p>No strategy comparison.</p>"
     df = pd.DataFrame(verdict.ranking).set_index("name")
-    return df.to_html(classes="metrics-table", float_format=lambda x: f"{x:.3f}")
+    return df.to_html(classes="metrics-table", border=0, float_format=lambda x: f"{x:.3f}")
 
 
 def build_recommendation_section(rec):
