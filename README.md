@@ -5,6 +5,8 @@ A Python library for advanced quantitative portfolio analysis, optimization, val
 `quant_reporter` turns a plain `{ticker: weight}` portfolio into rich, interactive, multi-page HTML reports. It is built on `pandas`, `numpy`, `scipy`, `statsmodels`, `yfinance`, and `plotly`, and covers performance & risk analytics, modern portfolio optimization, Monte Carlo forecasting, walk-forward validation, and Fama-French / Brinson attribution.
 
 > **2.0** introduces a unified `ReportContext` architecture: every report takes the same inputs — a portfolio, a benchmark, and a training window — fetches data **once**, and renders. This is a breaking change from 1.x (see [Migrating from 1.x](#migrating-from-1x)).
+>
+> **2.1** adds a primitives-first **strategy → backtest → report** loop — a cost-aware, walk-forward backtest engine with honest out-of-sample statistics (PSR/DSR) and an interactive backtest report — plus an opt-in **recommendation layer** (target weights, rebalance trade lists, risk-limit alerts, strategy verdicts, each carrying its rationale & evidence). All additive; the 2.0 API is unchanged. See [Strategy backtesting & recommendations](#strategy-backtesting--recommendations-21).
 
 ---
 
@@ -18,8 +20,10 @@ A Python library for advanced quantitative portfolio analysis, optimization, val
 | *What could happen next?* | Monte Carlo report: GBM path simulation, success probabilities, time-to-target, day-1 stress shocks |
 | *Was it skill or just market beta?* | Factor report: Fama-French regression (alpha vs factor exposure) + Brinson allocation/selection attribution |
 | *How do I fold in my own views?* | Black-Litterman: blend market equilibrium with absolute & relative views |
+| *Which strategy actually holds up out-of-sample?* | **Strategy backtesting (2.1)**: cost-aware walk-forward `backtest`/`backtest_many`, honest PSR/DSR out-of-sample stats, interactive backtest report |
+| *What should I do about it?* (opt-in) | **Recommendation layer (2.1)**: recommended target weights, a rebalance trade list, risk-limit alerts, and a strategy verdict — each with its rationale & evidence |
 
-The package is descriptive analytics on daily historical data — a decision-support and communication tool, not a cost-aware execution backtester. Monte Carlo assumes Geometric Brownian Motion (thin tails — it understates crash risk), and it depends on live `yfinance` data.
+The 2.0 report generators are descriptive analytics on daily historical data — a decision-support and communication tool. **2.1 adds a cost-aware, walk-forward backtest engine, a composable strategy layer, and an opt-in recommendation layer** (see [Strategy backtesting & recommendations](#strategy-backtesting--recommendations-21)). Monte Carlo assumes Geometric Brownian Motion (thin tails — it understates crash risk), and reports depend on live `yfinance` data.
 
 ---
 
@@ -134,6 +138,78 @@ qr.create_optimization_report(
 
 ---
 
+## Strategy backtesting & recommendations (2.1)
+
+2.1 adds a first-class **strategy → backtest → report** loop and an opt-in
+**recommendation layer**, both additive to the 2.0 API.
+
+### Backtest a strategy
+
+A strategy is **any callable** `(prices, **params) -> weights` — returning a `dict` for a
+static allocation or a dated `DataFrame` schedule — or a prebuilt from `qr.REGISTRY`, or a
+`qr.Strategy` wrapper. `qr.backtest` runs it through the cost-aware, walk-forward engine
+(reusing the tested `simulate_strategy`) and returns a rich `BacktestResult`.
+
+```python
+import quant_reporter as qr
+
+prices = qr.get_data(["SPY", "TLT", "GLD"], "2015-01-01", "2024-12-31")
+
+res = qr.backtest(qr.risk_parity, prices, benchmark="SPY",
+                  rebalance="M", cost_model=qr.transaction_cost_model)
+res.metrics      # dict: CAGR, Sharpe, Sortino, Calmar, Max Drawdown, ...
+res.oos_stats    # {'psr': ..., 'dsr': ...} — honest out-of-sample stats
+res.report("Backtest.html", open_browser=True)   # interactive HTML report
+```
+
+Prebuilt strategies (keys of `qr.REGISTRY`): `equal_weight`, `inverse_vol`, `min_variance`,
+`risk_parity`, `max_sharpe`, `trend_following`, `cross_sectional_momentum` — plus the
+higher-order `qr.vol_target_overlay(base_fn, target_vol=...)`. Schedule-producing strategies
+are look-ahead-safe (signals lagged, each row decided on data up to *d−1*).
+
+Compare several strategies (deflated for multiple testing) in one report:
+
+```python
+results = qr.backtest_many(
+    {"EW": qr.equal_weight, "RP": qr.risk_parity, "Trend": qr.trend_following},
+    prices, benchmark="SPY", cost_model=qr.transaction_cost_model)
+qr.create_backtest_report(results, path="Compare.html")   # adds an OOS comparison panel
+```
+
+A consolidated **metrics** library (`qr.summary_metrics`, `qr.sharpe`, `qr.sortino`,
+`qr.calmar`, `qr.max_drawdown`, `qr.value_at_risk`, …) and minimize-ready **objectives**
+(`qr.neg_sharpe`, `qr.variance`, `qr.cvar_objective`, …) back the report and are usable on
+their own.
+
+### Recommendations (opt-in — the only opinionated layer)
+
+Everything above is opinion-free with explicit parameters. The recommendation layer is where
+opinions live — vol target, drawdown limit, concentration caps, the selection metric — all
+overridable defaults. Each recommendation carries a human-readable `rationale` and a
+machine-readable `evidence` dict. It **consumes** the backtest/analytics primitives; it never
+re-optimizes or re-backtests.
+
+```python
+rec = qr.recommend(
+    prices,                                  # asset prices (exclude any benchmark column)
+    current_weights={"SPY": 0.6, "TLT": 0.3, "GLD": 0.1},
+    results=results,                         # from backtest_many — drives the verdict
+    vol_target=0.10, max_drawdown_limit=0.20, max_weight=0.40,
+)
+rec.target_weights   # RecommendedWeights — optimal target + rationale/evidence
+rec.trades           # RebalancePlan — buy/sell deltas, turnover, est. cost, no-trade band
+rec.alerts           # list[RiskAlert] — vol / drawdown / concentration / sector / factor breaches
+rec.verdict          # StrategyVerdict — which strategy wins on deflated Sharpe, with evidence
+print(rec.to_text())                  # plain-text digest
+rec.to_html("Recommendation.html")    # transparent HTML section
+```
+
+The four pieces are also standalone — `qr.recommend_weights`, `qr.rebalance_trades`,
+`qr.risk_alerts`, `qr.compare_verdict` — and a recommendation can be embedded directly into a
+backtest report: `res.report("Backtest.html", recommendation=rec)`.
+
+---
+
 ## Library (advanced) usage
 
 Beyond the one-call reports, the building blocks are importable for notebooks and custom scripts.
@@ -243,6 +319,8 @@ portfolio/benchmark weight dicts and a `sector_map`) instead of separate return 
 - `examples/generate_all_5_reports.py` — generates all five individual reports for a sample portfolio.
 - `examples/example_combined_report.py` — the combined flagship report.
 - `examples/example_black_litterman.py` — Black-Litterman views.
+- `examples/example_strategy_report.py` — (2.1) backtest several strategies → interactive backtest report (offline).
+- `examples/example_recommendation.py` — (2.1) opt-in recommendation bundle + transparent report, embedded in a backtest report (offline).
 
 ```bash
 pip install -e ".[test]"
