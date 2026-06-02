@@ -23,6 +23,7 @@ from .objectives import neg_sharpe
 from .backtest import portfolio_turnover, transaction_cost_model
 from .sizing import forecast_portfolio_vol
 from .metrics import compute_drawdown
+from .analytics import ReturnsBundle, compute_metrics
 from .performance_stats import compare_strategies_oos
 from .asset_info import compute_asset_factor_exposures
 from .planning import check_suitability, SuitabilityReport
@@ -290,12 +291,48 @@ def compare_verdict(results, *, select_by="dsr", benchmark=None):
 
 
 @dataclass
+class RecommendationValidation:
+    in_sample_sharpe: float
+    oos_sharpe: float
+    degradation: float
+    n_windows: int
+    verdict: str              # 'holds up' | 'fragile (overfit)' | 'inconclusive'
+    rationale: str
+    baseline_oos_sharpe: Optional[float] = None
+    per_window: list = field(default_factory=list)
+    evidence: dict = field(default_factory=dict)
+
+    def to_dict(self):
+        return {
+            "in_sample_sharpe": self.in_sample_sharpe,
+            "oos_sharpe": self.oos_sharpe,
+            "degradation": self.degradation,
+            "n_windows": self.n_windows,
+            "verdict": self.verdict,
+            "rationale": self.rationale,
+            "baseline_oos_sharpe": self.baseline_oos_sharpe,
+            "per_window": self.per_window,
+            "evidence": self.evidence,
+        }
+
+    def to_text(self):
+        lines = [f"Validation (walk-forward): {self.verdict.upper()}",
+                 f"  {self.rationale}",
+                 f"  in-sample Sharpe {self.in_sample_sharpe:.2f} | "
+                 f"OOS Sharpe {self.oos_sharpe:.2f} | {self.n_windows} windows"]
+        if self.baseline_oos_sharpe is not None:
+            lines.append(f"  current portfolio OOS Sharpe {self.baseline_oos_sharpe:.2f}")
+        return "\n".join(lines)
+
+
+@dataclass
 class Recommendation:
     target_weights: RecommendedWeights
     trades: Optional[RebalancePlan]
     alerts: list              # list[RiskAlert]
     verdict: Optional[StrategyVerdict]
     suitability: Optional[SuitabilityReport] = None
+    validation: Optional[RecommendationValidation] = None
 
     def to_dict(self):
         return {
@@ -352,7 +389,8 @@ def recommend(prices, *, current_weights=None, objective=neg_sharpe, results=Non
               cost_model=None, threshold=0.0, profile=None, vol_target=None,
               max_drawdown_limit=None, max_weight=None, max_risk_contribution=0.40,
               sector_map=None, sector_caps=None, factor_returns=None,
-              factor_loading_limit=None, risk_free_rate=0.02):
+              factor_loading_limit=None, risk_free_rate=0.02,
+              validate=False, window_years=1, step_months=3, max_degradation=0.5):
     """Opt-in recommendation bundle. `prices` are asset prices only. Alerts run on
     `current_weights` when given, else on the recommended target.
 
@@ -396,5 +434,113 @@ def recommend(prices, *, current_weights=None, objective=neg_sharpe, results=Non
     if profile is not None:
         suitability = check_suitability(target, profile, prices=prices,
                                         sector_map=sector_map)
+    validation = None
+    if validate:
+        validation = walk_forward_recommendation(
+            prices, objective=objective, profile=profile,
+            current_weights=current_weights, sector_map=sector_map,
+            window_years=window_years, step_months=step_months,
+            risk_free_rate=risk_free_rate, max_degradation=max_degradation)
     return Recommendation(target_weights=target, trades=trades, alerts=alerts,
-                          verdict=verdict, suitability=suitability)
+                          verdict=verdict, suitability=suitability,
+                          validation=validation)
+
+
+def _realized_metrics(prices, weights, risk_free_rate):
+    """Realized metrics of `weights` held over `prices` (benchmark = self, so
+    benchmark-relative fields are inert; we read Realized Sharpe/CAGR)."""
+    growth = get_portfolio_price(prices, weights)
+    g = pd.concat({"Portfolio": growth, "Benchmark": growth}, axis=1).dropna()
+    bundle = ReturnsBundle(daily=g.pct_change().dropna(), growth=g, weights_history=None)
+    return compute_metrics(bundle, risk_free_rate)
+
+
+def walk_forward_recommendation(prices, *, objective=neg_sharpe, profile=None,
+                                current_weights=None, sector_map=None,
+                                window_years=1, step_months=3,
+                                risk_free_rate=0.02, max_degradation=0.5):
+    """Walk-forward OOS validation of the recommendation on raw asset prices.
+
+    At each rolling window the constrained recommendation is re-derived on the
+    train slice (honoring `objective` + `profile`) and applied forward; the user's
+    `current_weights` (if given) are validated as an OOS baseline. Returns a
+    RecommendationValidation; verdict is degradation-based.
+    """
+    from .validation_report import _rolling_oos_sharpe, calculate_overfitting_score
+
+    cols = list(prices.columns)
+    n = len(cols)
+    obj = objective or neg_sharpe
+    if profile is not None:
+        from .planning import apply_constraints
+        r_bounds, r_cons = apply_constraints(profile, cols, sector_map=sector_map)
+    else:
+        r_bounds = tuple((0.0, 1.0) for _ in range(n))
+        r_cons = build_constraints(n, cols)
+
+    def _rec(train, mean, cov):
+        arr = find_optimal_portfolio(obj, mean, cov, r_bounds, r_cons, risk_free_rate)
+        return {t: float(w) for t, w in zip(cols, arr)}
+
+    strategies = {"Recommended": _rec}
+    if current_weights is not None:
+        def _cur(train, mean, cov):
+            return current_weights
+        strategies["Current"] = _cur
+
+    rolling_df = _rolling_oos_sharpe(
+        prices, cols, strategies, window_years=window_years, step_months=step_months,
+        risk_free_rate=risk_free_rate, benchmark_col=None)
+
+    n_windows = len(rolling_df)
+    if n_windows < 1:
+        return RecommendationValidation(
+            in_sample_sharpe=float("nan"), oos_sharpe=float("nan"),
+            degradation=float("nan"), n_windows=0, verdict="inconclusive",
+            rationale="Not enough data for a single walk-forward window.",
+            baseline_oos_sharpe=None, per_window=[],
+            evidence={"window_years": window_years, "step_months": step_months})
+
+    oos_sharpe = float(rolling_df["Recommended Sharpe"].mean())
+    baseline_oos_sharpe = (float(rolling_df["Current Sharpe"].mean())
+                           if "Current Sharpe" in rolling_df.columns else None)
+
+    mean, cov, _ = get_optimization_inputs(prices)
+    final_arr = find_optimal_portfolio(obj, mean, cov, r_bounds, r_cons, risk_free_rate)
+    final_w = {t: float(w) for t, w in zip(cols, final_arr)}
+    is_metrics = _realized_metrics(prices, final_w, risk_free_rate)
+    in_sample_sharpe = float(is_metrics.get("Realized Sharpe", float("nan")))
+
+    score = calculate_overfitting_score(
+        {"R": {"Realized Sharpe": in_sample_sharpe,
+               "Realized CAGR": is_metrics.get("Realized CAGR", 0.0)}},
+        {"R": {"Realized Sharpe": oos_sharpe}})
+    degradation = float(score.loc["R", "Overfitting Score"])
+
+    if oos_sharpe > 0 and degradation <= max_degradation:
+        verdict = "holds up"
+        rationale = (f"OOS Sharpe {oos_sharpe:.2f} over {n_windows} windows; "
+                     f"degradation {degradation:.0%} <= {max_degradation:.0%} "
+                     f"(in-sample {in_sample_sharpe:.2f}).")
+    else:
+        verdict = "fragile (overfit)"
+        rationale = (f"OOS Sharpe {oos_sharpe:.2f} over {n_windows} windows; "
+                     f"degradation {degradation:.0%} (in-sample {in_sample_sharpe:.2f}). "
+                     f"Advice did not generalize out-of-sample.")
+
+    per_window = []
+    has_current = "Current Sharpe" in rolling_df.columns
+    for period, row in rolling_df.iterrows():
+        per_window.append({
+            "period": period,
+            "recommended_sharpe": float(row.get("Recommended Sharpe", float("nan"))),
+            "current_sharpe": (float(row["Current Sharpe"]) if has_current else None),
+        })
+
+    return RecommendationValidation(
+        in_sample_sharpe=in_sample_sharpe, oos_sharpe=oos_sharpe,
+        degradation=degradation, n_windows=n_windows, verdict=verdict,
+        rationale=rationale, baseline_oos_sharpe=baseline_oos_sharpe,
+        per_window=per_window,
+        evidence={"max_degradation": max_degradation, "window_years": window_years,
+                  "step_months": step_months})
