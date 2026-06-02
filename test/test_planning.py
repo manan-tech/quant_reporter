@@ -47,3 +47,49 @@ def test_build_profile_from_ability_willingness():
     p = build_profile(ability="aggressive", willingness="moderate")
     assert p.risk_tolerance == "moderate"
     assert p.max_position_weight == 0.40  # moderate preset
+
+
+from quant_reporter.planning import apply_constraints
+
+
+def test_apply_constraints_weight_cap():
+    p = Profile(risk_tolerance="aggressive")  # cap 0.60
+    bounds, cons = apply_constraints(p, ["AAA", "BBB", "CCC"])
+    assert bounds == ((0.0, 0.60), (0.0, 0.60), (0.0, 0.60))
+
+
+def test_apply_constraints_excludes_assets():
+    p = Profile(risk_tolerance="aggressive", excluded_assets=("BBB",))
+    bounds, cons = apply_constraints(p, ["AAA", "BBB", "CCC"])
+    assert bounds[1] == (0.0, 0.0)
+    assert bounds[0] == (0.0, 0.60)
+
+
+def test_apply_constraints_liquidity_budget_targets_invested_fraction():
+    p = Profile(risk_tolerance="aggressive", liquidity_floor=0.10)
+    cols = ["AAA", "BBB", "CCC"]
+    bounds, cons = apply_constraints(p, cols)
+    budget = cons[0]                      # replaced budget constraint
+    invested = np.full(len(cols), 0.90 / len(cols))   # sums to 0.90
+    assert abs(budget["fun"](invested)) < 1e-9
+
+
+def test_apply_constraints_default_budget_is_one():
+    p = Profile(risk_tolerance="aggressive")
+    bounds, cons = apply_constraints(p, ["AAA", "BBB", "CCC"])
+    fully_invested = np.full(3, 1.0 / 3)
+    assert abs(cons[0]["fun"](fully_invested)) < 1e-9
+
+
+def test_apply_constraints_infeasible_cap_raises():
+    # conservative cap 0.25 across 3 assets -> max 0.75 < 1.0 budget
+    p = Profile(risk_tolerance="conservative")
+    with pytest.raises(ValueError):
+        apply_constraints(p, ["AAA", "BBB", "CCC"])
+
+
+def test_apply_constraints_sector_caps_add_constraints():
+    p = Profile(risk_tolerance="aggressive", sector_caps={"Tech": 0.5, "Fin": 0.6})
+    sector_map = {"AAA": "Tech", "BBB": "Tech", "CCC": "Fin"}
+    bounds, cons = apply_constraints(p, ["AAA", "BBB", "CCC"], sector_map=sector_map)
+    assert len(cons) > 1   # budget + at least one sector cap inequality

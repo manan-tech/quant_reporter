@@ -16,6 +16,10 @@ themselves. Taxes are intentionally out of scope (later spec).
 from dataclasses import dataclass
 from typing import Optional
 
+import numpy as np
+
+from .opt_core import build_constraints
+
 
 _PRESETS = {
     "conservative": {"max_volatility": 0.08, "max_position_weight": 0.25},
@@ -80,3 +84,42 @@ def build_profile(*, risk_tolerance=None, ability=None, willingness=None, **kwar
     if risk_tolerance is None:
         risk_tolerance = "moderate"
     return Profile(risk_tolerance=risk_tolerance, **kwargs)
+
+
+def apply_constraints(profile, columns, *, sector_map=None):
+    """Translate a Profile into optimizer (bounds, constraints).
+
+    Box/linear limits only: per-asset upper bound = max_position_weight,
+    excluded assets pinned to (0, 0), sector caps/mins via build_constraints,
+    and a liquidity cash sleeve via the budget equality. Nonlinear limits
+    (volatility, drawdown, return target) are evaluated in check_suitability.
+
+    Returns (bounds, constraints) ready for find_optimal_portfolio /
+    recommend_weights.
+    """
+    cols = list(columns)
+    n = len(cols)
+    cap = profile.max_position_weight
+    excluded = set(profile.excluded_assets)
+    invest_budget = 1.0 - profile.liquidity_floor
+
+    if n * cap < invest_budget - 1e-9:
+        raise ValueError(
+            f"max_position_weight={cap} across {n} assets cannot reach the "
+            f"{invest_budget:.0%} invested budget; raise the cap or add assets"
+        )
+
+    bounds = tuple((0.0, 0.0) if c in excluded else (0.0, cap) for c in cols)
+
+    constraints = list(build_constraints(
+        n, cols, sector_map=sector_map,
+        sector_caps=profile.sector_caps, sector_mins=profile.sector_mins,
+    ))
+    # build_constraints emits sum(w)==1 at index 0; replace it with the
+    # cash-sleeve budget when a liquidity floor is requested.
+    if profile.liquidity_floor > 0:
+        constraints[0] = {
+            "type": "eq",
+            "fun": lambda x, t=invest_budget: float(np.sum(x) - t),
+        }
+    return bounds, tuple(constraints)
