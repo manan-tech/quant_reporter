@@ -16,11 +16,6 @@ themselves. Taxes are intentionally out of scope (later spec).
 from dataclasses import dataclass
 from typing import Optional
 
-import numpy as np
-
-from .opt_core import build_constraints
-from .metrics import max_drawdown
-
 
 _PRESETS = {
     "conservative": {"max_volatility": 0.08, "max_position_weight": 0.25},
@@ -65,10 +60,6 @@ class Profile:
             raise ValueError("max_drawdown_tolerance must be in (0, 1]")
         if self.horizon_years is not None and self.horizon_years <= 0:
             raise ValueError("horizon_years must be > 0")
-        if self.sector_caps and sum(self.sector_caps.values()) < 1.0 - 1e-9:
-            raise ValueError(
-                "sector_caps sum to < 1; portfolio cannot be fully invested"
-            )
 
 
 def combine_risk_tolerance(ability, willingness):

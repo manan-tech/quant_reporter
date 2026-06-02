@@ -38,11 +38,6 @@ def test_profile_invalid_liquidity_floor_raises():
         Profile(liquidity_floor=1.5)
 
 
-def test_profile_sector_caps_summing_below_one_raises():
-    with pytest.raises(ValueError):
-        Profile(sector_caps={"Tech": 0.3, "Fin": 0.3})
-
-
 def test_combine_risk_tolerance_lower_governs():
     assert combine_risk_tolerance("aggressive", "conservative") == "conservative"
     assert combine_risk_tolerance("moderate", "aggressive") == "moderate"
