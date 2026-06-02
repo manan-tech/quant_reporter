@@ -202,13 +202,11 @@ def check_suitability(recommendation, profile, *, prices=None, sector_map=None):
             sec = sector_map.get(t)
             if sec is not None:
                 exposures[sec] = exposures.get(sec, 0.0) + w
-        any_breach = False
         for sec, cap in profile.sector_caps.items():
             obs = float(exposures.get(sec, 0.0))
             sec_cap = float(cap)
             sec_passed = obs <= sec_cap + 1e-9
             if not sec_passed:
-                any_breach = True
                 detail = f"sector {sec}: {obs:.2%} > cap {sec_cap:.2%}"
                 checks.append(SuitabilityCheck(
                     f"sector_caps_{sec}", sec_passed, detail, obs, sec_cap))
