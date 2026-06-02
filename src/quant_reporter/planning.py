@@ -192,22 +192,27 @@ def check_suitability(recommendation, profile, *, prices=None, sector_map=None):
         excl_wt, 0.0))
     hard.append(passed)
 
-    # 3. Sector caps
+    # 3. Sector caps — one SuitabilityCheck per breached sector so that
+    # .limit always refers to the cap of *that* sector.  A single aggregate
+    # check with limit=max(all caps) would make observed > limit false for
+    # breaches of a tighter cap while max(all caps) is loose.
     if sector_map and profile.sector_caps:
         exposures = {}
         for t, w in weights.items():
             sec = sector_map.get(t)
             if sec is not None:
                 exposures[sec] = exposures.get(sec, 0.0) + w
-        breaches = {s: exposures.get(s, 0.0) for s, cap in profile.sector_caps.items()
-                    if exposures.get(s, 0.0) > cap + 1e-9}
-        passed = not breaches
-        observed = float(max(breaches.values(), default=0.0))
-        detail = ("all sectors within caps" if passed else
-                  "over cap: " + ", ".join(f"{s} {v:.2%}" for s, v in breaches.items()))
-        checks.append(SuitabilityCheck("sector_caps", passed, detail, observed,
-                                       float(max(profile.sector_caps.values()))))
-        hard.append(passed)
+        any_breach = False
+        for sec, cap in profile.sector_caps.items():
+            obs = float(exposures.get(sec, 0.0))
+            sec_cap = float(cap)
+            sec_passed = obs <= sec_cap + 1e-9
+            if not sec_passed:
+                any_breach = True
+                detail = f"sector {sec}: {obs:.2%} > cap {sec_cap:.2%}"
+                checks.append(SuitabilityCheck(
+                    f"sector_caps_{sec}", sec_passed, detail, obs, sec_cap))
+                hard.append(sec_passed)
 
     # 4. Liquidity (invested fraction must leave the cash sleeve)
     invested = float(sum(weights.values()))

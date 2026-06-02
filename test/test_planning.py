@@ -180,3 +180,53 @@ def test_suitability_drawdown_with_prices():
     dd = next(c for c in rep.checks if c.name == "max_drawdown")
     assert dd.passed is False
     assert rep.suitable is False
+
+
+def test_suitability_sector_caps_limit_reflects_breached_sector():
+    """sector_caps check: .limit must be the cap of the breached sector, not max of all caps.
+
+    If Tech=0.3, Fin=0.9 and only Tech is breached (observed 0.8 > 0.3),
+    the limit stored on the check must be 0.3 (Tech's cap), not 0.9 (Fin's cap).
+    A consumer doing `observed > limit` must get the right answer.
+    """
+    sector_map = {"AAA": "Tech", "BBB": "Fin"}
+    # AAA weight 0.8 breaches Tech cap 0.3; BBB weight 0.2 is within Fin cap 0.9
+    rw = _rw({"AAA": 0.8, "BBB": 0.2})
+    p = Profile(
+        risk_tolerance="aggressive",
+        max_position_weight=1.0,  # no concentration cap
+        sector_caps={"Tech": 0.3, "Fin": 0.9},
+    )
+    rep = check_suitability(rw, p, sector_map=sector_map)
+    tech_check = next(c for c in rep.checks if c.name == "sector_caps_Tech")
+    assert tech_check.passed is False
+    # The critical invariant: observed > limit must hold (not be contradicted)
+    assert tech_check.observed > tech_check.limit, (
+        f"sector_caps limit bug: observed={tech_check.observed} limit={tech_check.limit}; "
+        "limit must be the breached sector's cap (0.3), not the max cap (0.9)"
+    )
+    # Fin is not breached — a check for it should either not exist or be passing
+    fin_checks = [c for c in rep.checks if c.name == "sector_caps_Fin"]
+    for fc in fin_checks:
+        assert fc.passed is True
+
+
+def test_suitability_sector_caps_emits_one_check_per_breach():
+    """Each breached sector produces its own SuitabilityCheck with name sector_caps_<sector>."""
+    sector_map = {"AAA": "Tech", "BBB": "Fin", "CCC": "Health"}
+    # Both Tech and Fin breached, Health is fine
+    rw = _rw({"AAA": 0.6, "BBB": 0.8, "CCC": 0.1})
+    p = Profile(
+        risk_tolerance="aggressive",
+        max_position_weight=1.0,
+        sector_caps={"Tech": 0.5, "Fin": 0.7, "Health": 0.9},
+    )
+    rep = check_suitability(rw, p, sector_map=sector_map)
+    # Both breached sectors must have their own failing checks
+    tech_check = next(c for c in rep.checks if c.name == "sector_caps_Tech")
+    fin_check = next(c for c in rep.checks if c.name == "sector_caps_Fin")
+    assert tech_check.passed is False
+    assert tech_check.observed > tech_check.limit
+    assert fin_check.passed is False
+    assert fin_check.observed > fin_check.limit
+    assert rep.suitable is False
