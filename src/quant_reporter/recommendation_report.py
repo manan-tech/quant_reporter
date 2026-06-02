@@ -47,6 +47,63 @@ def _verdict_table_html(verdict):
     return df.to_html(classes="metrics-table", border=0, float_format=lambda x: f"{x:.3f}")
 
 
+_SUIT_COLOR = {True: "#27ae60", False: "#c0392b"}
+
+
+def _suitability_html(suitability):
+    if suitability is None:
+        return "<p>No investor profile provided &mdash; suitability not assessed.</p>"
+    overall_color = _SUIT_COLOR[suitability.suitable]
+    overall_label = "SUITABLE" if suitability.suitable else "NOT SUITABLE"
+    rows = "".join(
+        f'<tr>'
+        f'<td style="color:{_SUIT_COLOR[c.passed]};font-weight:bold">{"PASS" if c.passed else "FAIL"}</td>'
+        f'<td>{c.name}</td>'
+        f'<td>{c.detail}</td>'
+        f'</tr>'
+        for c in suitability.checks
+    )
+    return (
+        f'<p style="color:{overall_color};font-weight:bold">{overall_label}: {suitability.rationale}</p>'
+        f'<table class="metrics-table">'
+        f'<tr><th>Result</th><th>Check</th><th>Detail</th></tr>'
+        f'{rows}'
+        f'</table>'
+    )
+
+
+_VERDICT_COLOR = {"holds up": "#27ae60", "fragile (overfit)": "#c0392b",
+                  "inconclusive": "#7f8c8d"}
+
+
+def _validation_html(validation):
+    if validation is None:
+        return "<p>Walk-forward validation not run (pass <code>validate=True</code>).</p>"
+    color = _VERDICT_COLOR.get(validation.verdict, "#7f8c8d")
+    baseline = ("" if validation.baseline_oos_sharpe is None
+                else f" | current portfolio OOS Sharpe {validation.baseline_oos_sharpe:.2f}")
+    row_html = []
+    for w in validation.per_window:
+        cur = w.get("current_sharpe")
+        cur_txt = "&mdash;" if cur is None else f"{cur:.2f}"
+        row_html.append(
+            f'<tr><td>{w["period"]}</td>'
+            f'<td>{w["recommended_sharpe"]:.2f}</td>'
+            f'<td>{cur_txt}</td></tr>'
+        )
+    rows = "".join(row_html)
+    return (
+        f'<p style="color:{color};font-weight:bold">{validation.verdict.upper()}: '
+        f'{validation.rationale}</p>'
+        f'<p>In-sample Sharpe {validation.in_sample_sharpe:.2f} | '
+        f'OOS Sharpe {validation.oos_sharpe:.2f} | {validation.n_windows} windows{baseline}</p>'
+        f'<table class="metrics-table">'
+        f'<tr><th>Test Period</th><th>Recommended Sharpe</th><th>Current Sharpe</th></tr>'
+        f'{rows}'
+        f'</table>'
+    )
+
+
 def build_recommendation_section(rec):
     return {
         "title": "Recommendations",
@@ -64,6 +121,12 @@ def build_recommendation_section(rec):
              "data": _verdict_table_html(rec.verdict),
              "description": (rec.verdict.rationale if rec.verdict is not None
                              else "No strategies compared.")},
+            {"type": "table_html", "title": "Suitability Assessment",
+             "data": _suitability_html(rec.suitability)},
+            {"type": "table_html", "title": "Walk-Forward Validation",
+             "data": _validation_html(rec.validation),
+             "description": (rec.validation.rationale if rec.validation is not None
+                             else "Pass validate=True to run out-of-sample walk-forward.")},
         ],
     }
 

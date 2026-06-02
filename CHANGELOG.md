@@ -3,25 +3,104 @@
 All notable changes to `quant_reporter` are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
-## [2.1.0] - 2026-06-01
+## [Unreleased]
 
 ### Added
-- Analytics core (`analytics.py`): `portfolio_returns`/`ReturnsBundle`, `compute_metrics` (numeric)
-  + `format_metrics`, `compute_drawdown`/`DrawdownResult`, and the memoized `ctx.analytics` accessor —
-  the single source of truth for portfolio returns, growth, drawdown, and realized metrics.
-- `build_context_from_prices()` — build a `ReportContext` from an already-fetched price DataFrame
-  (no network); enables offline use and testing.
-- `rebalance_freq` is now honored end-to-end (it was previously accepted but ignored): portfolio
-  Growth-of-$1 routes through the rebalancing engine; `None` = buy-and-hold (default, unchanged).
-- SP1a foundations (`signals.py`, `robust_estimators.py`, `backtest.py`): `compute_trailing_volatility`,
-  `volatility_target_positions`, `ledoit_wolf_covariance`, `portfolio_turnover`, `drawdown_stats` —
-  pure, look-ahead-safe Phase-1 primitives (no new dependencies).
-- SP1b cost-aware backtest engine: `simulate_strategy` (dict or dated-schedule weights; frictionless
-  buy-and-hold matches `simulate_rebalanced_portfolio`), `transaction_cost_model` (commission + half-spread;
-  `impact_model` hook reserved — market impact is future work), `generate_rebalance_dates`,
-  `run_rolling_windows(return_schedule=True)` weight-schedule unlock, and `performance_stats.py`
-  (`probabilistic_sharpe_ratio`, `deflated_sharpe_ratio`, `compare_strategies_oos`). Flagship:
-  `examples/example_walk_forward_backtest.py`.
+- **Decision-support planning layer (`planning.py`)** — a CFA-grounded investor
+  profile as a reusable primitive: `Profile` (risk tolerance presets + return
+  objective + TTLU constraints), `build_profile`, `combine_risk_tolerance`,
+  `apply_constraints` (Profile → optimizer bounds/constraints), and
+  `check_suitability` → `SuitabilityReport`. `recommend()`/`recommend_weights()`
+  accept an optional `profile=` that constrains the optimizer **and** sets the
+  alert thresholds — closing a seam where the limits previously drove only alerts,
+  not the recommended weights.
+- **Walk-forward validation of recommendations** — `recommend(validate=True)`
+  attaches a `RecommendationValidation` (out-of-sample vs in-sample Sharpe,
+  degradation, a holds-up/fragile/inconclusive verdict, and the current portfolio
+  as an OOS baseline), rendered in `to_text`/`to_dict`/`to_html`. Implemented by
+  extracting a shared `_rolling_oos_sharpe` core from `run_rolling_windows`
+  (behavior-preserving) and a `walk_forward_recommendation` helper; the existing
+  validation report is unchanged.
+
+## [2.1.0] - 2026-06-01
+
+The 2.x line grows from a reporting layer into a full quantitative toolkit: a
+pluggable data layer, a cost-aware backtest engine, position-sizing/risk overlays,
+tactical signals, factor tilts, a per-asset info layer, a prebuilt-strategy library
+with a unified runner, and an opt-in recommendation layer — plus packaging and CI
+hardening that took the project from a local 1.1.1 to a published 2.1.0 on PyPI.
+
+### Added
+
+#### Data layer
+- **`DataProvider` protocol** (`providers.py`): swap the data source (Bloomberg, CSV,
+  database, fixtures) for the default `YFinanceProvider` via `get_default_provider` /
+  `set_default_provider`, or pass `data_provider=` per report. Enables fully offline
+  and reproducible runs.
+- `build_context_from_prices()` — build a `ReportContext` from an already-fetched price
+  DataFrame (no network); enables offline use and testing.
+
+#### Analytics core (single source of truth)
+- Analytics core (`analytics.py`): `portfolio_returns`/`ReturnsBundle`, `compute_metrics`
+  (numeric) + `format_metrics`, `PortfolioAnalytics`, `compute_drawdown`/`DrawdownResult`,
+  and the memoized `ctx.analytics` accessor — the single source of truth for portfolio
+  returns, growth, drawdown, and realized metrics.
+- `rebalance_freq` is now honored end-to-end (it was previously accepted but ignored):
+  portfolio Growth-of-$1 routes through the rebalancing engine; `None` = buy-and-hold
+  (default, unchanged).
+
+#### Backtest engine
+- SP1a primitives (`signals.py`, `robust_estimators.py`, `backtest.py`):
+  `compute_trailing_volatility`, `volatility_target_positions`, `ledoit_wolf_covariance`,
+  `portfolio_turnover`, `drawdown_stats` — pure, look-ahead-safe (no new dependencies).
+- SP1b cost-aware engine: `simulate_strategy` (dict or dated-schedule weights; frictionless
+  buy-and-hold matches `simulate_rebalanced_portfolio`), `transaction_cost_model` (commission
+  + half-spread; `impact_model` hook reserved — market impact is future work),
+  `generate_rebalance_dates`, `run_rolling_windows(return_schedule=True)` weight-schedule
+  unlock, and `performance_stats.py` (`probabilistic_sharpe_ratio`, `deflated_sharpe_ratio`,
+  `compare_strategies_oos`). Flagship: `examples/example_walk_forward_backtest.py`.
+
+#### Position sizing & risk overlays (`sizing.py`, `opt_core.py`)
+- Sizing: `forecast_portfolio_vol`, `target_volatility_scalar`, `inverse_volatility_weights`,
+  `realized_tracking_error`, `kelly_fraction`, `cppi_weights`.
+- Advanced risk decomposition: `risk_contributions`, `optimize_risk_budget`, `portfolio_cvar`.
+
+#### Tactical signals (`signals.py`)
+- `time_series_momentum_signal`, `moving_average_crossover_signal`,
+  `cross_sectional_momentum_score`, `zscore_reversion_signal`.
+
+#### Factor tilts (`factor_tilts.py`)
+- `characteristic_tilt_weights`, `factor_neutralize_returns`, `resample_portfolio`.
+
+#### Per-asset info layer (`asset_info.py`)
+- `compute_asset_analytics`, `compute_asset_factor_exposures`, `get_asset_fundamentals`,
+  `narrate_asset`, `build_asset_info_table` — drill from portfolio to individual holding.
+
+#### Strategy library & runner
+- Shared metrics library (`metrics.py`): `cagr`, `annual_volatility`, `sharpe`, `sortino`,
+  `calmar`, `omega`, `max_drawdown`, `avg_drawdown`, `ulcer_index`, `value_at_risk`,
+  `conditional_var`, `downside_deviation`, `tracking_error`, `information_ratio`, `hit_rate`,
+  `win_loss_ratio`, `tail_ratio`, `skewness`, `kurtosis`, `summary_metrics`.
+- Objectives / loss surface (`objectives.py`): `neg_sharpe`, `variance`, `cvar_objective`,
+  `tracking_error_objective`, `mean_squared_error`, `mean_absolute_error`.
+- Prebuilt strategies (`strategies.py`): `equal_weight`, `inverse_vol`, `min_variance`,
+  `risk_parity`, `max_sharpe`, `trend_following`, `cross_sectional_momentum`,
+  `vol_target_overlay`, and a `REGISTRY` for lookup by name.
+- Unified runner (`strategy.py`): `Strategy`, `backtest`, `backtest_many`, `BacktestResult`,
+  plus `create_backtest_report`.
+
+#### Recommendation layer — opt-in opinions (`recommendation.py`)
+- `recommend`, `recommend_weights`, `rebalance_trades`, `risk_alerts`, `compare_verdict`,
+  with `Recommendation`, `RecommendedWeights`, `RebalancePlan`, `Trade`, `RiskAlert`,
+  `StrategyVerdict` result types, and `create_recommendation_report`.
+
+#### Packaging, CI & docs
+- Published to **PyPI** as `quant-reporter` 2.1.0; version unified across the package.
+- `py.typed` marker (PEP 561), MIT license metadata, pinned dependencies, and a serious
+  README with disclaimers and badges.
+- GitHub Actions CI matrix across Python **3.10–3.12** (ruff + pytest).
+- **Example gallery** (`examples/gallery/generate_gallery.py`) with portfolios and sector
+  maps, published to GitHub Pages: https://manan-tech.github.io/quant_reporter/.
 
 ### Changed
 - **Breaking:** removed the string-returning `calculate_metrics`; use `compute_metrics` (numeric) + `format_metrics` for display.
@@ -42,6 +121,23 @@ All notable changes to `quant_reporter` are documented here. This project follow
   in-sample optimization, and computes metrics numerically (no string round-trip).
 - Risk-free-rate fetch failure now falls back to **0.02** (was 0.06) via `DEFAULT_RISK_FREE_RATE`,
   matching `build_context`'s default — one documented fallback.
+- `plot_rolling_sharpe` de-collision: the single-portfolio variant keeps its name; the
+  multi-strategy variant is now exported as `plot_rolling_sharpe_comparison` (it no longer
+  shadows the single-portfolio export).
+
+### Fixed
+- **Benchmark that is also a holding** (e.g. a 60/40 of SPY+AGG benchmarked against SPY —
+  common) is now handled in two places: `report_context._assemble_context` no longer
+  duplicates the benchmark column (which inflated the asset count and caused `(2,)/(3,)`
+  shape errors), and `portfolio_report`'s constituent-growth concat no longer re-adds the
+  benchmark (which raised a Plotly `DuplicateError`). The benchmark is appended only when it
+  isn't already a holding.
+- **`create_combined_report` now forwards `data_provider`** — it has an explicit signature
+  (not `**kwargs`) and previously dropped the provider, so the flagship report couldn't run
+  offline.
+- Self-regression residual test made **BLAS-independent**: it asserts residual *magnitude*
+  relative to the input instead of the correlation of machine-epsilon residuals (numerically
+  meaningless; passed on macOS Accelerate but failed on Linux OpenBLAS in CI).
 
 ## [2.0.0]
 

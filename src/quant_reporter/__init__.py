@@ -223,7 +223,19 @@ from .backtest_report import create_backtest_report
 from .recommendation import (
     recommend, recommend_weights, rebalance_trades, risk_alerts, compare_verdict,
     Recommendation, RecommendedWeights, RebalancePlan, Trade, RiskAlert, StrategyVerdict,
+    RecommendationValidation, walk_forward_recommendation,
 )
 from .recommendation_report import create_recommendation_report
+
+# --- SP-Planning: IPS / Profile keystone (decision-support) ---
+from .planning import (
+    Profile,
+    build_profile,
+    combine_risk_tolerance,
+    apply_constraints,
+    check_suitability,
+    SuitabilityCheck,
+    SuitabilityReport,
+)
 
 __version__ = "2.1.0"
