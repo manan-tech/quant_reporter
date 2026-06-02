@@ -354,6 +354,7 @@ class Recommendation:
                 "rationale": self.verdict.rationale, "evidence": self.verdict.evidence,
             },
             "suitability": None if self.suitability is None else self.suitability.to_dict(),
+            "validation": None if self.validation is None else self.validation.to_dict(),
         }
 
     def to_text(self):
@@ -378,6 +379,8 @@ class Recommendation:
             lines += ["", f"Verdict: {self.verdict.rationale}"]
         if self.suitability is not None:
             lines += ["", self.suitability.to_text()]
+        if self.validation is not None:
+            lines += ["", self.validation.to_text()]
         return "\n".join(lines)
 
     def to_html(self, path=None, open_browser=False):

@@ -83,3 +83,21 @@ def test_verdict_threshold_controls_outcome():
     lenient = walk_forward_recommendation(prices, profile=prof, max_degradation=10.0)
     if lenient.oos_sharpe > 0:
         assert lenient.verdict == "holds up"
+
+
+def test_validation_renders_in_text_and_dict():
+    prices = _asset_prices()
+    prof = qr.build_profile(max_position_weight=0.6)
+    rec = qr.recommend(prices, current_weights={"AAA": 0.5, "BBB": 0.3, "CCC": 0.2},
+                       profile=prof, validate=True)
+    assert "Validation (walk-forward)" in rec.to_text()
+    d = rec.to_dict()
+    assert d["validation"] is not None
+    assert "oos_sharpe" in d["validation"]
+    # legacy path: key present, value None
+    assert qr.recommend(prices, profile=prof).to_dict()["validation"] is None
+
+
+def test_validation_public_surface_exported():
+    for name in ("RecommendationValidation", "walk_forward_recommendation"):
+        assert hasattr(qr, name), f"{name} not exported from quant_reporter"
