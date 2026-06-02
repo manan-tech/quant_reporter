@@ -103,9 +103,12 @@ def apply_constraints(profile, columns, *, sector_map=None):
     excluded = set(profile.excluded_assets)
     invest_budget = 1.0 - profile.liquidity_floor
 
-    if n * cap < invest_budget - 1e-9:
+    n_excluded = len(excluded & set(cols))
+    n_investable = n - n_excluded
+    if n_investable * cap < invest_budget - 1e-9:
         raise ValueError(
-            f"max_position_weight={cap} across {n} assets cannot reach the "
+            f"max_position_weight={cap} across {n_investable} investable assets "
+            f"(of {n} total; {n_excluded} excluded) cannot reach the "
             f"{invest_budget:.0%} invested budget; raise the cap or add assets"
         )
 

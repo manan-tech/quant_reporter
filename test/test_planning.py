@@ -93,3 +93,22 @@ def test_apply_constraints_sector_caps_add_constraints():
     sector_map = {"AAA": "Tech", "BBB": "Tech", "CCC": "Fin"}
     bounds, cons = apply_constraints(p, ["AAA", "BBB", "CCC"], sector_map=sector_map)
     assert len(cons) > 1   # budget + at least one sector cap inequality
+
+
+def test_apply_constraints_infeasible_after_exclusion_raises():
+    # moderate cap 0.40 with 3 assets: n * cap = 3 * 0.40 = 1.20 >= 1.0 (passes raw guard)
+    # but with AAA excluded: n_investable * cap = 2 * 0.40 = 0.80 < 1.0 (must raise)
+    p = Profile(risk_tolerance="moderate", excluded_assets=("AAA",))
+    with pytest.raises(ValueError):
+        apply_constraints(p, ["AAA", "BBB", "CCC"])
+
+
+def test_apply_constraints_infeasible_liquidity_plus_exclusion_raises():
+    # aggressive cap 0.60 with 3 assets: n * cap = 3 * 0.60 = 1.80 >= 0.85 (passes raw guard)
+    # with 1 excluded: n_investable * cap = 2 * 0.60 = 1.20 >= 0.85 (still passes — correct)
+    # with liquidity_floor=0.50: invest_budget=0.50, 2 * 0.60 = 1.20 >= 0.50 (passes — correct)
+    # now use moderate cap 0.40, liquidity_floor=0.20, 2 excluded of 3:
+    # n_investable=1, 1 * 0.40 = 0.40 < 0.80 invest_budget — must raise
+    p = Profile(risk_tolerance="moderate", liquidity_floor=0.20, excluded_assets=("AAA", "BBB"))
+    with pytest.raises(ValueError):
+        apply_constraints(p, ["AAA", "BBB", "CCC"])
