@@ -101,3 +101,15 @@ def test_validation_renders_in_text_and_dict():
 def test_validation_public_surface_exported():
     for name in ("RecommendationValidation", "walk_forward_recommendation"):
         assert hasattr(qr, name), f"{name} not exported from quant_reporter"
+
+
+def test_validation_renders_in_html(tmp_path):
+    prices = _asset_prices()
+    prof = qr.build_profile(max_position_weight=0.6)
+    rec = qr.recommend(prices, current_weights={"AAA": 0.5, "BBB": 0.3, "CCC": 0.2},
+                       profile=prof, validate=True)
+    out = tmp_path / "rec.html"
+    rec.to_html(str(out))
+    html = out.read_text()
+    assert "Walk-Forward Validation" in html
+    assert any(v in html for v in ("HOLDS UP", "FRAGILE", "INCONCLUSIVE"))
