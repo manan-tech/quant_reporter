@@ -19,6 +19,7 @@ from typing import Optional
 import numpy as np
 
 from .opt_core import build_constraints
+from .metrics import max_drawdown
 
 
 _PRESETS = {
@@ -126,3 +127,141 @@ def apply_constraints(profile, columns, *, sector_map=None):
             "fun": lambda x, t=invest_budget: float(np.sum(x) - t),
         }
     return bounds, tuple(constraints)
+
+
+@dataclass
+class SuitabilityCheck:
+    name: str
+    passed: bool
+    detail: str
+    observed: float
+    limit: float
+
+
+@dataclass
+class SuitabilityReport:
+    suitable: bool          # all HARD checks pass
+    checks: list            # list[SuitabilityCheck]
+    rationale: str
+
+    def to_dict(self):
+        return {
+            "suitable": self.suitable,
+            "rationale": self.rationale,
+            "checks": [vars(c) for c in self.checks],
+        }
+
+    def to_text(self):
+        lines = [f"Suitability: {'OK' if self.suitable else 'NOT SUITABLE'}"]
+        for c in self.checks:
+            lines.append(f"  [{'PASS' if c.passed else 'FAIL'}] {c.name}: {c.detail}")
+        return "\n".join(lines)
+
+
+def check_suitability(recommendation, profile, *, prices=None, sector_map=None):
+    """Audit a Recommendation (or RecommendedWeights) against a Profile.
+
+    Hard checks (flip `suitable`): concentration, exclusions, sector caps,
+    liquidity, volatility, max_drawdown. The return-target check is
+    informational only.
+    """
+    rw = getattr(recommendation, "target_weights", recommendation)
+    weights = dict(getattr(rw, "weights", {}) or {})
+    evidence = getattr(rw, "evidence", {}) or {}
+    checks, hard = [], []
+
+    # 1. Concentration
+    if weights:
+        tk = max(weights, key=lambda k: weights[k])
+        observed = float(weights[tk])
+        detail = f"max position {observed:.2%} ({tk}) vs cap {profile.max_position_weight:.2%}"
+    else:
+        observed, detail = 0.0, "no positions"
+    passed = observed <= profile.max_position_weight + 1e-9
+    checks.append(SuitabilityCheck("concentration", passed, detail, observed,
+                                   profile.max_position_weight))
+    hard.append(passed)
+
+    # 2. Exclusions
+    excl = set(profile.excluded_assets)
+    excl_wt = float(sum(w for t, w in weights.items() if t in excl))
+    passed = excl_wt <= 1e-9
+    checks.append(SuitabilityCheck(
+        "exclusions", passed,
+        f"weight in excluded assets {excl_wt:.2%}" if excl else "no exclusions set",
+        excl_wt, 0.0))
+    hard.append(passed)
+
+    # 3. Sector caps
+    if sector_map and profile.sector_caps:
+        exposures = {}
+        for t, w in weights.items():
+            sec = sector_map.get(t)
+            if sec is not None:
+                exposures[sec] = exposures.get(sec, 0.0) + w
+        breaches = {s: exposures.get(s, 0.0) for s, cap in profile.sector_caps.items()
+                    if exposures.get(s, 0.0) > cap + 1e-9}
+        passed = not breaches
+        observed = float(max(breaches.values(), default=0.0))
+        detail = ("all sectors within caps" if passed else
+                  "over cap: " + ", ".join(f"{s} {v:.2%}" for s, v in breaches.items()))
+        checks.append(SuitabilityCheck("sector_caps", passed, detail, observed,
+                                       float(max(profile.sector_caps.values()))))
+        hard.append(passed)
+
+    # 4. Liquidity (invested fraction must leave the cash sleeve)
+    invested = float(sum(weights.values()))
+    limit = 1.0 - profile.liquidity_floor
+    passed = invested <= limit + 1e-6
+    checks.append(SuitabilityCheck(
+        "liquidity", passed,
+        f"invested {invested:.2%} vs max {limit:.2%} (cash floor {profile.liquidity_floor:.2%})",
+        invested, limit))
+    hard.append(passed)
+
+    # 5. Volatility (from evidence if available)
+    ev_vol = evidence.get("expected_vol")
+    if ev_vol is not None:
+        observed = float(ev_vol)
+        passed = observed <= profile.max_volatility + 1e-9
+        checks.append(SuitabilityCheck(
+            "volatility", passed,
+            f"expected vol {observed:.2%} vs cap {profile.max_volatility:.2%}",
+            observed, profile.max_volatility))
+        hard.append(passed)
+
+    # 6. Return target (INFORMATIONAL — does not flip `suitable`)
+    if profile.return_target is not None:
+        ev_ret = evidence.get("expected_return")
+        if ev_ret is not None:
+            observed = float(ev_ret)
+            passed = observed >= profile.return_target - 1e-9
+            checks.append(SuitabilityCheck(
+                "return_target", passed,
+                f"expected return {observed:.2%} vs target {profile.return_target:.2%} "
+                f"(informational)",
+                observed, profile.return_target))
+            # intentionally NOT appended to `hard`
+
+    # 7. Drawdown (only if prices provided)
+    if prices is not None and weights:
+        cols = [c for c in weights if c in prices.columns]
+        if cols:
+            w = np.array([weights[c] for c in cols], dtype=float)
+            rets = prices[cols].pct_change().dropna()
+            port = (rets * w).sum(axis=1)
+            observed = abs(max_drawdown(port))
+            passed = observed <= profile.max_drawdown_tolerance + 1e-9
+            checks.append(SuitabilityCheck(
+                "max_drawdown", passed,
+                f"historical max drawdown {observed:.2%} vs tolerance "
+                f"{profile.max_drawdown_tolerance:.2%}",
+                float(observed), profile.max_drawdown_tolerance))
+            hard.append(passed)
+
+    suitable = all(hard)
+    n_fail = sum(1 for p in hard if not p)
+    rationale = ("All suitability checks pass." if suitable else
+                 f"{n_fail} hard suitability check(s) failed; recommendation not "
+                 f"suitable for this profile.")
+    return SuitabilityReport(suitable=suitable, checks=checks, rationale=rationale)

@@ -112,3 +112,71 @@ def test_apply_constraints_infeasible_liquidity_plus_exclusion_raises():
     p = Profile(risk_tolerance="moderate", liquidity_floor=0.20, excluded_assets=("AAA", "BBB"))
     with pytest.raises(ValueError):
         apply_constraints(p, ["AAA", "BBB", "CCC"])
+
+
+from quant_reporter.planning import check_suitability, SuitabilityReport
+from quant_reporter.recommendation import RecommendedWeights
+
+
+def _rw(weights, expected_vol=0.10, expected_return=0.12):
+    return RecommendedWeights(
+        weights=weights, objective="neg_sharpe", rationale="x",
+        evidence={"expected_vol": expected_vol, "expected_return": expected_return},
+    )
+
+
+def test_suitability_concentration_fails():
+    rw = _rw({"AAA": 0.8, "BBB": 0.2})
+    rep = check_suitability(rw, Profile(risk_tolerance="moderate"))  # cap 0.40
+    conc = next(c for c in rep.checks if c.name == "concentration")
+    assert conc.passed is False
+    assert rep.suitable is False
+
+
+def test_suitability_exclusions_fail():
+    rw = _rw({"AAA": 0.5, "BBB": 0.5})
+    rep = check_suitability(rw, Profile(risk_tolerance="aggressive", excluded_assets=("AAA",)))
+    excl = next(c for c in rep.checks if c.name == "exclusions")
+    assert excl.passed is False
+    assert rep.suitable is False
+
+
+def test_suitability_liquidity_pass_and_fail():
+    p = Profile(risk_tolerance="aggressive", liquidity_floor=0.10)  # invested <= 0.90
+    rep_fail = check_suitability(_rw({"AAA": 0.5, "BBB": 0.5}), p)  # invested 1.0
+    assert next(c for c in rep_fail.checks if c.name == "liquidity").passed is False
+    rep_ok = check_suitability(_rw({"AAA": 0.45, "BBB": 0.45}), p)  # invested 0.90
+    assert next(c for c in rep_ok.checks if c.name == "liquidity").passed is True
+
+
+def test_suitability_volatility_from_evidence():
+    rw = _rw({"AAA": 0.5, "BBB": 0.5}, expected_vol=0.30)
+    rep = check_suitability(rw, Profile(risk_tolerance="moderate"))  # vol cap 0.12
+    vol = next(c for c in rep.checks if c.name == "volatility")
+    assert vol.passed is False
+    assert rep.suitable is False
+
+
+def test_suitability_return_target_is_informational():
+    rw = _rw({"AAA": 0.3, "BBB": 0.3, "CCC": 0.4}, expected_vol=0.05, expected_return=0.03)
+    p = Profile(risk_tolerance="aggressive", return_target=0.10)
+    rep = check_suitability(rw, p)
+    rt = next(c for c in rep.checks if c.name == "return_target")
+    assert rt.passed is False        # 3% < 10% target
+    assert rep.suitable is True      # informational only -> still suitable
+
+
+def test_suitability_all_pass():
+    rw = _rw({"AAA": 0.3, "BBB": 0.3, "CCC": 0.4}, expected_vol=0.05)
+    rep = check_suitability(rw, Profile(risk_tolerance="aggressive"))
+    assert isinstance(rep, SuitabilityReport)
+    assert rep.suitable is True
+
+
+def test_suitability_drawdown_with_prices():
+    rw = _rw({"AAA": 0.5, "BBB": 0.5}, expected_vol=0.05)
+    p = Profile(risk_tolerance="aggressive", max_drawdown_tolerance=0.001)  # absurdly tight
+    rep = check_suitability(rw, p, prices=_prices(cols=("AAA", "BBB")))
+    dd = next(c for c in rep.checks if c.name == "max_drawdown")
+    assert dd.passed is False
+    assert rep.suitable is False
