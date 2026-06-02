@@ -47,6 +47,31 @@ def _verdict_table_html(verdict):
     return df.to_html(classes="metrics-table", border=0, float_format=lambda x: f"{x:.3f}")
 
 
+_SUIT_COLOR = {True: "#27ae60", False: "#c0392b"}
+
+
+def _suitability_html(suitability):
+    if suitability is None:
+        return "<p>No investor profile provided &mdash; suitability not assessed.</p>"
+    overall_color = _SUIT_COLOR[suitability.suitable]
+    overall_label = "SUITABLE" if suitability.suitable else "NOT SUITABLE"
+    rows = "".join(
+        f'<tr>'
+        f'<td style="color:{_SUIT_COLOR[c.passed]};font-weight:bold">{"PASS" if c.passed else "FAIL"}</td>'
+        f'<td>{c.name}</td>'
+        f'<td>{c.detail}</td>'
+        f'</tr>'
+        for c in suitability.checks
+    )
+    return (
+        f'<p style="color:{overall_color};font-weight:bold">{overall_label}: {suitability.rationale}</p>'
+        f'<table class="metrics-table">'
+        f'<tr><th>Result</th><th>Check</th><th>Detail</th></tr>'
+        f'{rows}'
+        f'</table>'
+    )
+
+
 def build_recommendation_section(rec):
     return {
         "title": "Recommendations",
@@ -64,6 +89,8 @@ def build_recommendation_section(rec):
              "data": _verdict_table_html(rec.verdict),
              "description": (rec.verdict.rationale if rec.verdict is not None
                              else "No strategies compared.")},
+            {"type": "table_html", "title": "Suitability Assessment",
+             "data": _suitability_html(rec.suitability)},
         ],
     }
 

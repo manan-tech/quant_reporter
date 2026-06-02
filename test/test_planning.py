@@ -293,3 +293,22 @@ def test_recommendation_to_text_renders_suitability():
     prices = _prices()
     rec = recommend(prices, profile=Profile(risk_tolerance="aggressive"))
     assert "Suitability" in rec.to_text()
+
+
+def test_recommendation_to_html_renders_suitability(tmp_path):
+    prices = _prices()
+    rec = recommend(prices, profile=Profile(risk_tolerance="aggressive"))
+    html_path = str(tmp_path / "rec.html")
+    rec.to_html(path=html_path)
+    with open(html_path) as f:
+        html = f.read()
+    assert "Suitability Assessment" in html
+    assert "SUITABLE" in html or "NOT SUITABLE" in html
+    # legacy path: no profile -> suitability section still present but says "not assessed"
+    rec_no_profile = recommend(prices)
+    html_path2 = str(tmp_path / "rec_no_profile.html")
+    rec_no_profile.to_html(path=html_path2)
+    with open(html_path2) as f:
+        html2 = f.read()
+    assert "Suitability Assessment" in html2
+    assert "not assessed" in html2
