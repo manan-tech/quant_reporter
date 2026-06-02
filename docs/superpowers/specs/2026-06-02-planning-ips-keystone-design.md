@@ -81,8 +81,16 @@ tax-aware rebalancing is a later spec.
 
 ### `build_profile(...) -> Profile`
 Convenience constructor: applies presets to fill `None` fields, validates ranges
-and raises `ValueError` on nonsense (negative horizon; `liquidity_floor` ∉ [0,1];
-sector caps summing < 1; `max_position_weight` ∉ (0,1]; unknown `risk_tolerance`).
+and raises `ValueError` on nonsense (negative horizon; `liquidity_floor` ∉ [0,1);
+`max_position_weight` ∉ (0,1]; `max_volatility` ≤ 0; `max_drawdown_tolerance` ∉
+(0,1]; unknown `risk_tolerance`).
+
+> **Correction (post-implementation):** an earlier draft of this spec also
+> required `sector_caps` summing to ≥ 1 to raise otherwise. That rule was
+> **dropped during implementation** (commit `b8ac536`) because it is incorrect:
+> `sector_caps` are *per-sector upper bounds*, not a partition of the portfolio —
+> assets in uncapped sectors remain fully investable, so e.g. `{Tech: 0.3,
+> Fin: 0.3}` is valid. No sector-cap-sum validation is performed.
 
 Optional CFA-grounded helper `combine_risk_tolerance(ability, willingness)` — the
 lower of the two governs, with a conflict note in the returned rationale.
