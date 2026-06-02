@@ -230,3 +230,30 @@ def test_suitability_sector_caps_emits_one_check_per_breach():
     assert fin_check.passed is False
     assert fin_check.observed > fin_check.limit
     assert rep.suitable is False
+
+
+from quant_reporter.recommendation import recommend_weights
+
+
+def test_recommend_weights_profile_respects_cap():
+    prices = _prices()
+    rw = recommend_weights(prices, profile=Profile(max_position_weight=0.30))
+    assert all(w <= 0.30 + 1e-6 for w in rw.weights.values())
+    assert abs(sum(rw.weights.values()) - 1.0) < 1e-6
+
+
+def test_recommend_weights_no_profile_runs_and_sums_to_one():
+    prices = _prices()
+    rw = recommend_weights(prices)               # profile=None: legacy path
+    assert abs(sum(rw.weights.values()) - 1.0) < 1e-6
+
+
+def test_recommend_weights_explicit_bounds_override_profile():
+    prices = _prices()
+    n = prices.shape[1]
+    rw = recommend_weights(
+        prices, profile=Profile(max_position_weight=0.30),
+        bounds=tuple((0.0, 1.0) for _ in range(n)),
+    )
+    # explicit bounds win -> the 0.30 cap is NOT enforced via profile
+    assert abs(sum(rw.weights.values()) - 1.0) < 1e-6

@@ -36,16 +36,21 @@ class RecommendedWeights:
 
 
 def recommend_weights(prices, *, objective=neg_sharpe, bounds=None, constraints=None,
-                      risk_free_rate=0.02):
+                      profile=None, sector_map=None, risk_free_rate=0.02):
     """Point-in-time optimal target weights from a single objective.
 
     Optimizes `objective` over all columns of `prices` on the canonical
     (get_optimization_inputs) basis. Distinct from compare_verdict's
-    backtest-driven pick.
+    backtest-driven pick. When `profile` is given and `bounds`/`constraints`
+    are not supplied explicitly, they are derived from the profile via
+    planning.apply_constraints (explicit bounds/constraints always win).
     """
     mean, cov, _ = get_optimization_inputs(prices)
     cols = list(cov.columns)
     n = len(cols)
+    if profile is not None and bounds is None and constraints is None:
+        from .planning import apply_constraints
+        bounds, constraints = apply_constraints(profile, cols, sector_map=sector_map)
     if bounds is None:
         bounds = tuple((0.0, 1.0) for _ in range(n))
     if constraints is None:
