@@ -48,3 +48,9 @@ council-transcript-*.md
 
 # Generated gallery HTML — published to the gh-pages branch, kept out of main
 site/
+
+# Local research materials (PDFs, books, reference docs)
+research/
+
+# Generated advisory reports (regenerable via examples)
+advisory_out/
