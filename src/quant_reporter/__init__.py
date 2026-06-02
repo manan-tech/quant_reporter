@@ -226,4 +226,15 @@ from .recommendation import (
 )
 from .recommendation_report import create_recommendation_report
 
+# --- SP-Planning: IPS / Profile keystone (decision-support) ---
+from .planning import (
+    Profile,
+    build_profile,
+    combine_risk_tolerance,
+    apply_constraints,
+    check_suitability,
+    SuitabilityCheck,
+    SuitabilityReport,
+)
+
 __version__ = "2.1.0"

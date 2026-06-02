@@ -312,3 +312,11 @@ def test_recommendation_to_html_renders_suitability(tmp_path):
         html2 = f.read()
     assert "Suitability Assessment" in html2
     assert "not assessed" in html2
+
+
+def test_public_surface_exported():
+    import quant_reporter as qr
+    for name in ("Profile", "build_profile", "combine_risk_tolerance",
+                 "apply_constraints", "check_suitability",
+                 "SuitabilityReport", "SuitabilityCheck"):
+        assert hasattr(qr, name), f"{name} not exported from quant_reporter"
