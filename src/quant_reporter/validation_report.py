@@ -61,91 +61,141 @@ def calculate_overfitting_score(is_metrics, oos_metrics):
         }
     return pd.DataFrame.from_dict(scores, orient='index')
 
+def _rolling_oos_sharpe(price_data, asset_cols, strategies, *, window_years=1,
+                        step_months=3, risk_free_rate=0.02, benchmark_col=None,
+                        denoise_cov=False, n_components=3, return_schedule=False):
+    """Shared walk-forward core.
+
+    `strategies` is an ordered dict ``{name -> fn(train_df, mean, cov) -> weights_dict}``.
+    For each rolling train/test window: compute optimization inputs once on the
+    train slice, build each strategy's weights, apply them to the test slice, and
+    record each strategy's realized OOS Sharpe. Returns a DataFrame indexed by
+    "Test Period" with columns "{name} Sharpe" (plus the per-strategy weight
+    schedule when ``return_schedule=True``). When ``benchmark_col`` is None, each
+    strategy's own growth is used as the bundle benchmark (Realized Sharpe is a
+    portfolio-only metric, so this does not affect it).
+    """
+    results = []
+    schedule_rows = {name: {} for name in strategies}
+
+    start_date = price_data.index.min()
+    end_date = price_data.index.max()
+    current_train_start = start_date
+    window_days = int(window_years * 365)
+    step_days = int(step_months * 30)
+
+    while current_train_start + pd.Timedelta(days=window_days + step_days) <= end_date:
+        train_end = current_train_start + pd.Timedelta(days=window_days)
+        test_start = train_end + pd.Timedelta(days=1)
+        test_end = test_start + pd.Timedelta(days=step_days)
+
+        train_data = price_data.loc[current_train_start:train_end]
+        test_data = price_data.loc[test_start:test_end]
+        if train_data.empty or test_data.empty:
+            break
+
+        mean_returns, cov_matrix, _ = get_optimization_inputs(
+            train_data[asset_cols], denoise_cov=denoise_cov, n_components=n_components)
+
+        try:
+            w_dicts = {name: fn(train_data, mean_returns, cov_matrix)
+                       for name, fn in strategies.items()}
+            for _name, _w in w_dicts.items():
+                schedule_rows[_name][test_start] = _w
+
+            window_metrics = {"Test Period":
+                              f"{test_start.strftime('%Y-%m')} to {test_end.strftime('%Y-%m')}"}
+            bench_growth = None
+            if benchmark_col is not None:
+                bench_growth = test_data[benchmark_col] / test_data[benchmark_col].iloc[0]
+
+            for name, w_dict in w_dicts.items():
+                strat_growth = get_portfolio_price(test_data[asset_cols], w_dict)
+                bench = bench_growth if bench_growth is not None else strat_growth
+                bundle = _bundle_from_growth(strat_growth, bench)
+                m = compute_metrics(bundle, risk_free_rate)
+                window_metrics[f"{name} Sharpe"] = m.get("Realized Sharpe", np.nan)
+
+            results.append(window_metrics)
+        except Exception as e:
+            logger.debug(f"Rolling optimization failed for window {current_train_start}: {e}")
+
+        current_train_start += pd.Timedelta(days=step_days)
+
+    rolling_df = pd.DataFrame(results).set_index("Test Period") if results else pd.DataFrame()
+    if return_schedule:
+        schedule = {
+            name: pd.DataFrame.from_dict(rows, orient="index").reindex(
+                columns=asset_cols).sort_index()
+            for name, rows in schedule_rows.items()
+        }
+        return rolling_df, schedule
+    return rolling_df
+
+
 def run_rolling_windows(ctx: ReportContext, window_years=1, step_months=3,
                         denoise_cov: bool = False, n_components: int = 3,
-                        return_schedule: bool = False):
+                        return_schedule: bool = False,
+                        objective=None, profile=None):
     """
     Performs Rolling Window Walk-Forward Validation using a fixed window size.
     Returns a dataframe of out-of-sample Sharpe ratios across all periods.
 
     When ``return_schedule=True``, additionally returns a per-strategy weight
-    schedule as ``(rolling_df, target_weight_schedule)`` where
-    ``target_weight_schedule`` is ``dict[strategy_name -> DataFrame]`` (index = each
-    window's OOS start date, columns = ``ctx.friendly_tickers``, values = that
-    window's weights) for the strategies built inside the loop: ``Equal Wt``,
-    ``Min Vol``, ``Max Sharpe``, ``User Portfolio``.
+    schedule as ``(rolling_df, target_weight_schedule)`` for the strategies built
+    inside the loop: ``Equal Wt``, ``Min Vol``, ``Max Sharpe``, ``User Portfolio``
+    (and ``Recommended`` when ``objective`` or ``profile`` is supplied).
+
+    When ``objective`` or ``profile`` is given, an extra ``Recommended`` strategy
+    is validated using the profile-constrained optimize (honoring
+    ``max_position_weight``, sector caps, exclusions) and the chosen objective.
+    With both None, the strategy set is exactly the historical four (unchanged).
     """
-    results = []
-    schedule_rows = {"Equal Wt": {}, "Min Vol": {}, "Max Sharpe": {}, "User Portfolio": {}}
+    asset_cols = ctx.friendly_tickers
+    num_assets = len(asset_cols)
+    bounds_uncon = tuple((0, 1) for _ in range(num_assets))
+    cons_uncon = build_constraints(num_assets, ctx.tickers)
+    rf = ctx.risk_free_rate
 
-    start_date = ctx.price_data_full.index.min()
-    end_date = ctx.price_data_full.index.max()
-    
-    current_train_start = start_date
-    window_days = int(window_years * 365)
-    step_days = int(step_months * 30)
-    
-    num_assets = len(ctx.friendly_tickers)
-    
-    while current_train_start + pd.Timedelta(days=window_days+step_days) <= end_date:
-        train_end = current_train_start + pd.Timedelta(days=window_days)
-        test_start = train_end + pd.Timedelta(days=1)
-        test_end = test_start + pd.Timedelta(days=step_days)
-        
-        train_data = ctx.price_data_full.loc[current_train_start:train_end]
-        test_data = ctx.price_data_full.loc[test_start:test_end]
-        
-        if train_data.empty or test_data.empty:
-            break
-            
-        mean_returns, cov_matrix, _ = get_optimization_inputs(
-                train_data[ctx.friendly_tickers],
-                denoise_cov=denoise_cov,
-                n_components=n_components,
-            )
-        
-        bounds_uncon = tuple((0, 1) for _ in range(num_assets))
-        cons_uncon = build_constraints(num_assets, ctx.tickers)
-        
-        try:
-            min_vol_arr = find_optimal_portfolio(objective_min_variance, mean_returns, cov_matrix, bounds_uncon, cons_uncon, ctx.risk_free_rate)
-            max_sharpe_arr = find_optimal_portfolio(objective_neg_sharpe, mean_returns, cov_matrix, bounds_uncon, cons_uncon, ctx.risk_free_rate)
-            equal_arr = np.array([1./num_assets] * num_assets)
-            
-            w_dicts = {
-                "Equal Wt": {t: w for t, w in zip(ctx.friendly_tickers, equal_arr)},
-                "Min Vol": {t: w for t, w in zip(ctx.friendly_tickers, min_vol_arr)},
-                "Max Sharpe": {t: w for t, w in zip(ctx.friendly_tickers, max_sharpe_arr)},
-                "User Portfolio": ctx.user_friendly_weights
-            }
+    def _equal(train, mean, cov):
+        return {t: 1.0 / num_assets for t in asset_cols}
 
-            for _name, _w in w_dicts.items():
-                schedule_rows[_name][test_start] = _w
+    def _minvol(train, mean, cov):
+        arr = find_optimal_portfolio(objective_min_variance, mean, cov,
+                                     bounds_uncon, cons_uncon, rf)
+        return {t: w for t, w in zip(asset_cols, arr)}
 
-            window_metrics = {"Test Period": f"{test_start.strftime('%Y-%m')} to {test_end.strftime('%Y-%m')}"}
-            
-            bench_growth = (test_data[ctx.friendly_benchmark] / test_data[ctx.friendly_benchmark].iloc[0])
-            for name, w_dict in w_dicts.items():
-                strat_growth = get_portfolio_price(test_data[ctx.friendly_tickers], w_dict)
-                bundle = _bundle_from_growth(strat_growth, bench_growth)
-                m = compute_metrics(bundle, ctx.risk_free_rate)
-                window_metrics[f"{name} Sharpe"] = m.get("Realized Sharpe", np.nan)
-                
-            results.append(window_metrics)
-        except Exception as e:
-            logger.debug(f"Rolling optimization failed for window {current_train_start}: {e}")
-            
-        current_train_start += pd.Timedelta(days=step_days)
-    
-    rolling_df = pd.DataFrame(results).set_index("Test Period") if results else pd.DataFrame()
-    if return_schedule:
-        schedule = {
-            name: pd.DataFrame.from_dict(rows, orient="index").reindex(
-                columns=ctx.friendly_tickers).sort_index()
-            for name, rows in schedule_rows.items()
-        }
-        return rolling_df, schedule
-    return rolling_df
+    def _maxsharpe(train, mean, cov):
+        arr = find_optimal_portfolio(objective_neg_sharpe, mean, cov,
+                                     bounds_uncon, cons_uncon, rf)
+        return {t: w for t, w in zip(asset_cols, arr)}
+
+    def _user(train, mean, cov):
+        return ctx.user_friendly_weights
+
+    strategies = {"Equal Wt": _equal, "Min Vol": _minvol,
+                  "Max Sharpe": _maxsharpe, "User Portfolio": _user}
+
+    if objective is not None or profile is not None:
+        obj = objective or objective_neg_sharpe
+        if profile is not None:
+            from .planning import apply_constraints
+            r_bounds, r_cons = apply_constraints(
+                profile, ctx.tickers, sector_map=getattr(ctx, "sector_map", None))
+        else:
+            r_bounds, r_cons = bounds_uncon, cons_uncon
+
+        def _recommended(train, mean, cov, _obj=obj, _b=r_bounds, _c=r_cons):
+            arr = find_optimal_portfolio(_obj, mean, cov, _b, _c, rf)
+            return {t: w for t, w in zip(asset_cols, arr)}
+
+        strategies["Recommended"] = _recommended
+
+    return _rolling_oos_sharpe(
+        ctx.price_data_full, asset_cols, strategies,
+        window_years=window_years, step_months=step_months, risk_free_rate=rf,
+        benchmark_col=ctx.friendly_benchmark, denoise_cov=denoise_cov,
+        n_components=n_components, return_schedule=return_schedule)
 
 
 def compute_validation_analysis(ctx: ReportContext):
