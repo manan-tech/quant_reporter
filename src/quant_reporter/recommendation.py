@@ -25,6 +25,7 @@ from .sizing import forecast_portfolio_vol
 from .metrics import compute_drawdown
 from .performance_stats import compare_strategies_oos
 from .asset_info import compute_asset_factor_exposures
+from .planning import check_suitability, SuitabilityReport
 
 
 @dataclass
@@ -294,6 +295,7 @@ class Recommendation:
     trades: Optional[RebalancePlan]
     alerts: list              # list[RiskAlert]
     verdict: Optional[StrategyVerdict]
+    suitability: Optional[SuitabilityReport] = None
 
     def to_dict(self):
         return {
@@ -314,6 +316,7 @@ class Recommendation:
                 "winner": self.verdict.winner, "ranking": self.verdict.ranking,
                 "rationale": self.verdict.rationale, "evidence": self.verdict.evidence,
             },
+            "suitability": None if self.suitability is None else self.suitability.to_dict(),
         }
 
     def to_text(self):
@@ -336,6 +339,8 @@ class Recommendation:
             lines.append("Risk alerts: none")
         if self.verdict is not None:
             lines += ["", f"Verdict: {self.verdict.rationale}"]
+        if self.suitability is not None:
+            lines += ["", self.suitability.to_text()]
         return "\n".join(lines)
 
     def to_html(self, path=None, open_browser=False):
@@ -344,13 +349,37 @@ class Recommendation:
 
 
 def recommend(prices, *, current_weights=None, objective=neg_sharpe, results=None,
-              cost_model=None, threshold=0.0, vol_target=0.10, max_drawdown_limit=0.20,
-              max_weight=0.40, max_risk_contribution=0.40, sector_map=None,
-              sector_caps=None, factor_returns=None, factor_loading_limit=None,
-              risk_free_rate=0.02):
+              cost_model=None, threshold=0.0, profile=None, vol_target=None,
+              max_drawdown_limit=None, max_weight=None, max_risk_contribution=0.40,
+              sector_map=None, sector_caps=None, factor_returns=None,
+              factor_loading_limit=None, risk_free_rate=0.02):
     """Opt-in recommendation bundle. `prices` are asset prices only. Alerts run on
-    `current_weights` when given, else on the recommended target."""
-    target = recommend_weights(prices, objective=objective, risk_free_rate=risk_free_rate)
+    `current_weights` when given, else on the recommended target.
+
+    When `profile` is supplied: it constrains the optimizer (via recommend_weights),
+    fills the alert thresholds (vol_target, max_drawdown_limit, max_weight,
+    sector_caps) unless those are passed explicitly, and a SuitabilityReport is
+    attached. `profile=None` reproduces the legacy behavior exactly.
+    """
+    if profile is not None:
+        if vol_target is None:
+            vol_target = profile.max_volatility
+        if max_drawdown_limit is None:
+            max_drawdown_limit = profile.max_drawdown_tolerance
+        if max_weight is None:
+            max_weight = profile.max_position_weight
+        if sector_caps is None:
+            sector_caps = profile.sector_caps
+    # historical defaults when still unset (legacy behavior)
+    if vol_target is None:
+        vol_target = 0.10
+    if max_drawdown_limit is None:
+        max_drawdown_limit = 0.20
+    if max_weight is None:
+        max_weight = 0.40
+
+    target = recommend_weights(prices, objective=objective, profile=profile,
+                               sector_map=sector_map, risk_free_rate=risk_free_rate)
     trades = None
     if current_weights is not None:
         trades = rebalance_trades(current_weights, target.weights,
@@ -363,4 +392,9 @@ def recommend(prices, *, current_weights=None, objective=neg_sharpe, results=Non
                          factor_returns=factor_returns,
                          factor_loading_limit=factor_loading_limit)
     verdict = compare_verdict(results) if results else None
-    return Recommendation(target_weights=target, trades=trades, alerts=alerts, verdict=verdict)
+    suitability = None
+    if profile is not None:
+        suitability = check_suitability(target, profile, prices=prices,
+                                        sector_map=sector_map)
+    return Recommendation(target_weights=target, trades=trades, alerts=alerts,
+                          verdict=verdict, suitability=suitability)

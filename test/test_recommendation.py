@@ -207,7 +207,7 @@ def test_recommend_alerts_target_when_no_current():
 def test_recommendation_to_dict_keys():
     rec = recommend(_prices(n=700), current_weights={"AAA": 0.5, "BBB": 0.3, "CCC": 0.2}, **_OFF)
     d = rec.to_dict()
-    assert set(d) == {"target_weights", "trades", "alerts", "verdict"}
+    assert set(d) == {"target_weights", "trades", "alerts", "verdict", "suitability"}
     assert d["trades"]["orders"] and isinstance(d["alerts"], list)
     assert d["verdict"] is None
 

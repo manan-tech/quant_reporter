@@ -257,3 +257,39 @@ def test_recommend_weights_explicit_bounds_override_profile():
     )
     # explicit bounds win -> the 0.30 cap is NOT enforced via profile
     assert abs(sum(rw.weights.values()) - 1.0) < 1e-6
+
+
+from quant_reporter.recommendation import recommend
+
+
+def test_recommend_profile_constrains_optimizer_seam_fix():
+    prices = _prices()
+    rec = recommend(prices, profile=Profile(risk_tolerance="conservative"))  # cap 0.25
+    # the seam fix: target weights themselves respect the cap, not just alerts
+    assert all(w <= 0.25 + 1e-6 for w in rec.target_weights.weights.values())
+    assert rec.suitability is not None
+    conc = next(c for c in rec.suitability.checks if c.name == "concentration")
+    assert conc.passed is True
+
+
+def test_recommend_no_profile_suitability_none():
+    prices = _prices()
+    rec = recommend(prices)
+    assert rec.suitability is None
+
+
+def test_recommendation_to_dict_includes_suitability():
+    prices = _prices()
+    rec = recommend(prices, profile=Profile(risk_tolerance="aggressive"))
+    d = rec.to_dict()
+    assert "suitability" in d
+    assert d["suitability"] is not None
+    assert "checks" in d["suitability"]
+    # legacy path: key present, value None
+    assert recommend(prices).to_dict()["suitability"] is None
+
+
+def test_recommendation_to_text_renders_suitability():
+    prices = _prices()
+    rec = recommend(prices, profile=Profile(risk_tolerance="aggressive"))
+    assert "Suitability" in rec.to_text()
