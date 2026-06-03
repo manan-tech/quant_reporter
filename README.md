@@ -39,6 +39,8 @@ That's the whole loop: a `{ticker: weight}` dict in, an interactive report out. 
 > **2.0** introduces a unified `ReportContext` architecture: every report takes the same inputs — a portfolio, a benchmark, and a training window — fetches data **once**, and renders. This is a breaking change from 1.x (see [Migrating from 1.x](#migrating-from-1x)).
 >
 > **2.1** adds a primitives-first **strategy → backtest → report** loop — a cost-aware, walk-forward backtest engine with honest out-of-sample statistics (PSR/DSR) and an interactive backtest report — plus an opt-in **recommendation layer** (target weights, rebalance trade lists, risk-limit alerts, strategy verdicts, each carrying its rationale & evidence). All additive; the 2.0 API is unchanged. See [Strategy backtesting & recommendations](#strategy-backtesting--recommendations-21).
+>
+> **2.2** adds a **decision-support planning layer**: a CFA-grounded investor `Profile` (risk-tolerance presets + return objective + TTLU constraints) that constrains the optimizer **and** sets the risk-alert thresholds via `recommend(profile=)`, plus **walk-forward validation of recommendations** (`recommend(validate=True)` → out-of-sample vs in-sample Sharpe, degradation, and a holds-up / fragile / inconclusive verdict). All additive; the 2.1 API is unchanged.
 
 ---
 
@@ -54,6 +56,7 @@ That's the whole loop: a `{ticker: weight}` dict in, an interactive report out. 
 | *How do I fold in my own views?* | Black-Litterman: blend market equilibrium with absolute & relative views |
 | *Which strategy actually holds up out-of-sample?* | **Strategy backtesting (2.1)**: cost-aware walk-forward `backtest`/`backtest_many`, honest PSR/DSR out-of-sample stats, interactive backtest report |
 | *What should I do about it?* (opt-in) | **Recommendation layer (2.1)**: recommended target weights, a rebalance trade list, risk-limit alerts, and a strategy verdict — each with its rationale & evidence |
+| *Does this suit my goals, and does it hold up out-of-sample?* (opt-in) | **Decision-support layer (2.2)**: a CFA-grounded investor `Profile` that constrains the optimizer and sets alert thresholds, plus walk-forward validation of the recommendation (in-sample vs OOS Sharpe + a holds-up / fragile verdict) |
 
 The 2.0 report generators are descriptive analytics on daily historical data — a decision-support and communication tool. **2.1 adds a cost-aware, walk-forward backtest engine, a composable strategy layer, and an opt-in recommendation layer** (see [Strategy backtesting & recommendations](#strategy-backtesting--recommendations-21)). Monte Carlo assumes Geometric Brownian Motion (thin tails — it understates crash risk), and reports depend on live `yfinance` data.
 

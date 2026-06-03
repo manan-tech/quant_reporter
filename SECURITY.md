@@ -15,7 +15,7 @@ fixes are applied to the latest released `2.x` line only.
 Please report security issues **privately** — do not open a public GitHub issue
 for anything exploitable.
 
-- Email: **manan@targetpeak.in** with the subject line `quant_reporter security`.
+- Email: **mananpbansal@gmail.com** with the subject line `quant_reporter security`.
 - Include: affected version, a description, and a minimal reproduction if possible.
 
 You can expect an initial acknowledgement within **7 days**. As a single-maintainer

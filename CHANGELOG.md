@@ -5,6 +5,8 @@ All notable changes to `quant_reporter` are documented here. This project follow
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-06-03
+
 ### Added
 - **Decision-support planning layer (`planning.py`)** — a CFA-grounded investor
   profile as a reusable primitive: `Profile` (risk tolerance presets + return
@@ -21,6 +23,10 @@ All notable changes to `quant_reporter` are documented here. This project follow
   extracting a shared `_rolling_oos_sharpe` core from `run_rolling_windows`
   (behavior-preserving) and a `walk_forward_recommendation` helper; the existing
   validation report is unchanged.
+
+### Changed
+- Maintainer contact email updated to the project's personal address
+  (`mananpbansal@gmail.com`) in package metadata (`pyproject.toml`) and `SECURITY.md`.
 
 ## [2.1.0] - 2026-06-01
 

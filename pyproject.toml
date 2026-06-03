@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "quant_reporter"
-version = "2.1.0"
+version = "2.2.0"
 authors = [
-  { name="Manan Bansal", email="manan@targetpeak.in" },
+  { name="Manan Bansal", email="mananpbansal@gmail.com" },
 ]
 description = "Portfolio analytics, MPT optimization, cost-aware backtesting, and walk-forward validation for systematic traders and quant researchers. Not financial advice."
 readme = {file = "README.md", content-type = "text/markdown"}
