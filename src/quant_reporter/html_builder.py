@@ -1,8 +1,19 @@
 import logging
+from html import escape
 import pandas as pd
 import plotly.io as pio
 
 logger = logging.getLogger(__name__)
+
+
+def _esc(value):
+    """Escape free-text (titles, descriptions, labels) before HTML interpolation.
+
+    Plotly figures and pandas ``to_html`` handle their own escaping; this guards
+    the hand-built f-string fragments where a stray ``&`` / ``<`` in a ticker
+    display name or section title would otherwise break the markup.
+    """
+    return escape(str(value))
 
 def generate_html_report(sections, title="Quantitative Report", filename="report.html"):
     """
@@ -17,12 +28,12 @@ def generate_html_report(sections, title="Quantitative Report", filename="report
 
     for i, section in enumerate(sections):
         section_id = f"section-{i}"
-        toc_links.append(f'<li><a href="#{section_id}">{section["title"]}</a></li>')
+        toc_links.append(f'<li><a href="#{section_id}">{_esc(section["title"])}</a></li>')
 
         # --- Sidebar Content ---
         if "sidebar" in section:
             for item in section["sidebar"]:
-                sidebar_html += f'<h2>{item["title"]}</h2>'
+                sidebar_html += f'<h2>{_esc(item["title"])}</h2>'
                 if item["type"] == "metrics":
                     df = pd.DataFrame.from_dict(item["data"], orient='index', columns=['Value'])
                     sidebar_html += df.to_html(header=False, classes='metrics-table')
@@ -31,17 +42,17 @@ def generate_html_report(sections, title="Quantitative Report", filename="report
 
         # --- Main Content ---
         main_content_html += f'<div id="{section_id}" class="report-section">'
-        main_content_html += f'<h1>{section["title"]}</h1>'
+        main_content_html += f'<h1>{_esc(section["title"])}</h1>'
         if "description" in section:
-            main_content_html += f'<p>{section["description"]}</p>'
+            main_content_html += f'<p>{_esc(section["description"])}</p>'
 
         for item in section["main_content"]:
             item_class = "plot-item" if item["type"] == "plot" else "table-item"
             main_content_html += f'<div class="{item_class}">'
             if "title" in item:
-                main_content_html += f'<h2>{item["title"]}</h2>'
+                main_content_html += f'<h2>{_esc(item["title"])}</h2>'
             if item.get("description"):
-                main_content_html += f'<p class="item-description">{item["description"]}</p>'
+                main_content_html += f'<p class="item-description">{_esc(item["description"])}</p>'
 
             if item["type"] == "plot":
                 if not js_added:
@@ -63,7 +74,7 @@ def generate_html_report(sections, title="Quantitative Report", filename="report
                 main_content_html += '<div class="metrics-grid">'
                 for name, data in item["data"].items():
                     main_content_html += '<div class="metrics-card">'
-                    main_content_html += f"<h2>{name} Portfolio</h2>"
+                    main_content_html += f"<h2>{_esc(name)} Portfolio</h2>"
 
                     weights_df = pd.DataFrame.from_dict(
                         data['weights_dict'], orient='index', columns=['Weight']

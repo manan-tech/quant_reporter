@@ -5,6 +5,21 @@ All notable changes to `quant_reporter` are documented here. This project follow
 
 ## [Unreleased]
 
+### Changed
+- **Unified Sortino definition.** The realized-metrics block (`analytics.compute_metrics`,
+  which powers the portfolio/combined reports) now uses the canonical `metrics.sortino`
+  (semi-deviation downside, MAR = risk-free rate) instead of a separate legacy helper that
+  used a 0% threshold. Every surface now reports one Sortino definition; reported Sortino
+  values may shift slightly as a result.
+
+### Fixed
+- HTML reports now HTML-escape section/item titles and descriptions, so a `&`/`<` in a
+  ticker display name or label no longer breaks the markup (`html_builder.py`).
+
+### Removed
+- Dropped the unused legacy `calculate_sortino_ratio` helper (was internal, not part of the
+  public API) now that the analytics core uses the canonical `sortino`.
+
 ## [2.2.0] - 2026-06-03
 
 ### Added

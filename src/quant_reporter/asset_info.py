@@ -241,7 +241,7 @@ def narrate_asset(row, llm_hook=None):
 
     parts = []
     w = row.get("weight")
-    if w is not None and np.isfinite(float(w)) if _is_finite(w) else False:
+    if _is_finite(w):
         parts.append(f"weight {_pct(w)}")
     ann_ret = row.get("annualized_return")
     if _is_finite(ann_ret):
