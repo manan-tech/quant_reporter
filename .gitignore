@@ -46,6 +46,10 @@ HANDOFF.md
 council-report-*.html
 council-transcript-*.md
 
+# Internal planning docs — kept local, not published to the public repo
+docs/superpowers/
+TODO.md
+
 # Generated gallery HTML — published to the gh-pages branch, kept out of main
 site/
 

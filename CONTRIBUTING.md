@@ -79,8 +79,8 @@ from it ("fetch once, render many"). Layers, lowest to highest: `analytics`/`met
 (measurement) → `opt_core`/`advanced_optimizers` (optimization) → `backtest`/`strategy`
 (cost-aware walk-forward engine) → `recommendation`/`planning` (the only *opinionated*
 layer, always carrying `rationale` + `evidence`) → `*_report` (HTML rendering). Bigger
-features follow a brainstorm → spec → plan → execute cycle; specs and plans live in
-`docs/superpowers/`.
+features follow a brainstorm → spec → plan → execute cycle; open an issue to discuss the
+design before a large change.
 
 ## Commit & PR conventions
 
