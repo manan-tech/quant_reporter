@@ -1,0 +1,32 @@
+# Sourcery AI code-review configuration — https://docs.sourcery.ai
+#
+# Sourcery is free for public repositories. To enable it, install the GitHub App
+# from https://sourcery.ai and grant it access to this repo; it then reviews new
+# pull requests automatically (the vendor covers the LLM cost for open source —
+# there is no API key or paid plan needed for a public repo). This file is
+# optional config that focuses and tunes those reviews.
+
+version: '1'
+
+# Keep reviews focused on the library source. Tests, generated docs/plans,
+# runnable examples, and build artifacts are skipped to keep the signal high.
+# (Sourcery always ignores the .github/ workflows directory regardless.)
+ignore:
+  - test/
+  - docs/
+  - examples/
+  - .venv/
+  - venv/
+  - build/
+  - dist/
+  - '*.egg-info'
+
+rule_settings:
+  enable:
+    - default
+  disable: []
+  rule_types:
+    - refactoring
+    - suggestion
+    - comment
+  python_version: '3.9'   # the project supports Python >= 3.9

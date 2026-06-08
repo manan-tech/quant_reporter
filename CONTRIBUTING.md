@@ -55,6 +55,22 @@ pytest test/ -q          # full suite; the network smoke test is auto-skipped of
 - **Match the surrounding style.** Ruff is configured for high-signal rules only; we are
   not gating line-length/whitespace, so mirror the nearby code.
 
+## Automated review on your PR
+
+When you open a PR, a few automated reviewers run automatically — all **free**, nothing
+to install on your end:
+
+- **CI** — ruff + the full test suite on Python 3.10–3.12 (must pass; coverage ≥ 80%).
+- **CodeQL** & **Semgrep** — static analysis for security/quality bugs; findings show as
+  inline annotations on the *Files changed* tab and in the **Security** tab.
+- **Sourcery** — AI code review, configured in [`.sourcery.yaml`](.sourcery.yaml). It posts
+  suggestions as PR comments. Treat these as advisory: apply what genuinely improves the
+  change, and feel free to push back (or resolve the comment) where it's wrong — reviewer
+  bots don't have the full picture, and the quant correctness rules above always win.
+
+Green checks and bot comments are a starting point for human review, not a substitute for
+it — a maintainer still reviews substantive changes.
+
 ## Architecture in one paragraph
 
 Data flows through a single `DataProvider` (yfinance by default, swappable for
