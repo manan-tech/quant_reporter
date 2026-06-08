@@ -1,0 +1,50 @@
+name: Semgrep
+
+# Free, open-source static analysis. Findings are uploaded to GitHub code
+# scanning and surface as inline annotations on the PR + in the Security tab.
+# No account, no token, no API credits — free for public repositories.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    # Weekly catch-up scan, Tuesdays 06:00 UTC.
+    - cron: "0 6 * * 2"
+
+jobs:
+  semgrep:
+    name: Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Semgrep
+        run: python -m pip install --upgrade pip semgrep
+
+      - name: Run Semgrep (Python + security rules)
+        # `|| true` keeps the job green so findings surface as review
+        # annotations rather than blocking the merge.
+        run: |
+          semgrep scan \
+            --config p/python \
+            --config p/security-audit \
+            --sarif --output semgrep.sarif \
+            --metrics off || true
+
+      - name: Upload findings to code scanning
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
