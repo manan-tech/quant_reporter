@@ -9,7 +9,8 @@ import pandas as pd
 from scipy import stats
 
 from .rebalancing import simulate_rebalanced_portfolio
-from .metrics import compute_drawdown, calculate_sortino_ratio, calculate_var_cvar
+from .metrics import compute_drawdown, calculate_var_cvar
+from .metrics import sortino as sortino_ratio
 
 
 @dataclass(frozen=True)
@@ -64,7 +65,9 @@ def compute_metrics(bundle, risk_free_rate):
     excess = pr - risk_free_rate / 252
     ex_std = excess.std()
     sharpe = float((excess.mean() * 252) / (ex_std * ann)) if (np.isfinite(ex_std) and ex_std > 0) else 0.0
-    sortino = float(calculate_sortino_ratio(pr, risk_free_rate))
+    # Canonical Sortino: semi-deviation downside (MAR = risk-free rate), shared
+    # with the strategy/metrics library so every surface reports one definition.
+    sortino = float(sortino_ratio(pr, risk_free_rate=risk_free_rate))
     max_dd = compute_drawdown(growth).max_dd
 
     n_years = max((growth.index[-1] - growth.index[0]).days / 365.25, 1)
