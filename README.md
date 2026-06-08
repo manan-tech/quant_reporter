@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/manan-tech/quant_reporter/actions/workflows/ci.yml/badge.svg)](https://github.com/manan-tech/quant_reporter/actions/workflows/ci.yml)
 [![PyPI version](https://img.shields.io/pypi/v/quant-reporter.svg)](https://pypi.org/project/quant-reporter/)
-[![Downloads](https://static.pepy.tech/badge/quant-reporter)](https://pepy.tech/project/quant-reporter)
+[![PyPI Downloads](https://static.pepy.tech/personalized-badge/quant-reporter?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/quant-reporter)
 [![Python versions](https://img.shields.io/pypi/pyversions/quant-reporter.svg)](https://pypi.org/project/quant-reporter/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -404,6 +404,12 @@ reports and PRs are welcome via [GitHub Issues](https://github.com/manan-tech/qu
 responses are not guaranteed on any timeline. For security reports, see
 [SECURITY.md](SECURITY.md). The public API follows [SemVer](https://semver.org/) —
 breaking changes bump the major version.
+
+**Want to contribute?** See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, the two
+non-negotiable quant rules (no look-ahead bias, honest out-of-sample stats), and the test
+workflow. New contributors: start with issues labelled
+[`good first issue`](https://github.com/manan-tech/quant_reporter/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
+or [`help wanted`](https://github.com/manan-tech/quant_reporter/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22).
 
 ---
 
