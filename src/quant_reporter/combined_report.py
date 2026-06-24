@@ -2,7 +2,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from .report_context import build_context
+from .report_context import build_context, data_quality_section
 from .html_builder import generate_html_report
 
 # Import component-level compute functions
@@ -117,6 +117,11 @@ def _assemble_combined_sections(
         Forwarded to compute_monte_carlo_analysis.
     """
     all_sections = []
+
+    # Data Quality Notes — surface any silent input fallbacks at the very top.
+    dq_section = data_quality_section(ctx)
+    if dq_section:
+        all_sections.append(dq_section)
 
     # Executive Summary
     all_sections.append(_build_executive_summary(ctx))

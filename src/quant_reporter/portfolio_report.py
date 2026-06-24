@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 
 logger = logging.getLogger(__name__)
 
-from .report_context import ReportContext, build_context
+from .report_context import ReportContext, build_context, data_quality_section
 from .analytics import format_metrics
 from .plotting import (
     plot_cumulative_returns,
@@ -218,5 +218,8 @@ def create_portfolio_report(portfolio_dict, benchmark_ticker, train_start, train
     """
     ctx = build_context(portfolio_dict, benchmark_ticker, train_start, train_end, **kwargs)
     sections = compute_portfolio_analysis(ctx)
+    dq_section = data_quality_section(ctx)
+    if dq_section:
+        sections.insert(0, dq_section)
     generate_html_report(sections, title="Portfolio Report", filename=filename)
     logger.info("Portfolio report complete.")
