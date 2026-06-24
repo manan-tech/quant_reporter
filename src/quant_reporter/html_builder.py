@@ -39,6 +39,8 @@ def generate_html_report(sections, title="Quantitative Report", filename="report
                     sidebar_html += df.to_html(header=False, classes='metrics-table')
                 elif item["type"] == "table_html":
                     sidebar_html += item["data"]
+                elif item["type"] == "text_html":
+                    sidebar_html += item["data"]
 
         # --- Main Content ---
         main_content_html += f'<div id="{section_id}" class="report-section">'
@@ -88,6 +90,9 @@ def generate_html_report(sections, title="Quantitative Report", filename="report
                     main_content_html += metrics_df.to_html(header=False, classes='metrics-table')
                     main_content_html += "</div>"
                 main_content_html += '</div>'
+
+            elif item["type"] == "text_html":
+                main_content_html += item["data"]
 
             main_content_html += '</div>'
         main_content_html += '</div>'
