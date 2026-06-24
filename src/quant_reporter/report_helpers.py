@@ -76,6 +76,15 @@ def run_standard_optimizers(ctx, constraints=None):
     caps or mins is configured (matching the prior guard in both reports).
     Callers map these arrays to their own display names so the existing report
     labels and ordering are preserved.
+
+    Ordering invariant: ``ctx.tickers`` and ``ctx.friendly_tickers`` are
+    positionally aligned — same length, same order — because
+    ``report_context._resolve_friendly_names`` builds the friendly list by
+    mapping over ``tickers`` in order (and the dropped-ticker path filters both
+    order-preservingly). The constraints/covariance are built over
+    ``ctx.tickers`` and the resulting arrays therefore line up element-for-
+    element with ``ctx.friendly_tickers`` when callers ``zip`` them. This
+    mirrors the pre-refactor behavior in both reports.
     """
     if constraints is None:
         constraints = build_standard_constraints(ctx)
