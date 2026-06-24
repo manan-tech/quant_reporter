@@ -5,17 +5,20 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 from .report_context import ReportContext, build_context
-from .metrics import compute_drawdown
-from .analytics import ReturnsBundle, compute_metrics, format_metrics
+from .analytics import compute_metrics, format_metrics
 from .html_builder import generate_html_report
+from .report_helpers import (
+    build_standard_constraints,
+    bundle_from_growth,
+    compute_drawdown_frame,
+    run_standard_optimizers,
+)
 
 from .opt_core import (
     find_optimal_portfolio,
     objective_neg_sharpe,
-    objective_min_variance,
     calculate_efficient_frontier_curve,
     get_portfolio_price,
-    build_constraints
 )
 from .opt_plotting import (
     plot_efficient_frontier,
@@ -44,12 +47,6 @@ from .black_litterman import (
     calculate_implied_equilibrium_returns,
     calculate_black_litterman_posterior
 )
-
-def _bundle_from_growth(strategy_growth, benchmark_growth):
-    """Build a ReturnsBundle from two Growth-of-$1 series (portfolio and benchmark)."""
-    growth = pd.concat({"Portfolio": strategy_growth, "Benchmark": benchmark_growth}, axis=1).dropna()
-    return ReturnsBundle(daily=growth.pct_change().dropna(), growth=growth, weights_history=None)
-
 
 def calculate_transition_costs(current_weights, target_weights_dict, transaction_cost_bps=10):
     """
@@ -116,41 +113,27 @@ def compute_optimization_analysis(ctx: ReportContext):
     """
     logger.info("Computing Optimization Analysis...")
     
-    num_assets = len(ctx.tickers)
-    
-    # 1. Define Constraints
-    bounds_uncon = tuple((0, 1) for _ in range(num_assets))
-    cons_uncon = build_constraints(num_assets, ctx.tickers)
-    bounds_bal = tuple((0, 0.40) for _ in range(num_assets))
-    cons_bal = build_constraints(num_assets, ctx.tickers)
-    cons_sector = build_constraints(num_assets, ctx.tickers, ctx.sector_map, ctx.sector_caps, ctx.sector_mins)
-    
+    # 1. Define Constraints (shared with the validation report via report_helpers)
+    constraints = build_standard_constraints(ctx)
+    bounds_uncon, cons_uncon = constraints.bounds_uncon, constraints.cons_uncon
+
     # 2. Run Standard Optimizers
     logger.info("Running Standard Optimizers...")
-    min_vol_weights_arr = find_optimal_portfolio(objective_min_variance, ctx.mean_returns, ctx.cov_matrix, bounds_uncon, cons_uncon, ctx.risk_free_rate)
-    min_vol_weights_dict = {t: w for t, w in zip(ctx.friendly_tickers, min_vol_weights_arr)}
+    arrays = run_standard_optimizers(ctx, constraints)
 
-    max_sharpe_weights_arr = find_optimal_portfolio(objective_neg_sharpe, ctx.mean_returns, ctx.cov_matrix, bounds_uncon, cons_uncon, ctx.risk_free_rate)
-    max_sharpe_weights_dict = {t: w for t, w in zip(ctx.friendly_tickers, max_sharpe_weights_arr)}
-
-    bal_weights_arr = find_optimal_portfolio(objective_neg_sharpe, ctx.mean_returns, ctx.cov_matrix, bounds_bal, cons_bal, ctx.risk_free_rate)
-    bal_weights_dict = {t: w for t, w in zip(ctx.friendly_tickers, bal_weights_arr)}
-    
-    equal_weights_arr = np.array([1./num_assets] * num_assets)
-    equal_weights_dict = {t: w for t, w in zip(ctx.friendly_tickers, equal_weights_arr)}
+    def _to_dict(arr):
+        return {t: w for t, w in zip(ctx.friendly_tickers, arr)}
 
     weights_collection = {
         "User Portfolio": ctx.user_friendly_weights,
-        "Equal Wt (Baseline)": equal_weights_dict,
-        "Minimum Volatility": min_vol_weights_dict,
-        "Max Sharpe (Unconstrained)": max_sharpe_weights_dict,
-        "Balanced (40% Cap)": bal_weights_dict
+        "Equal Wt (Baseline)": _to_dict(arrays["equal"]),
+        "Minimum Volatility": _to_dict(arrays["min_vol"]),
+        "Max Sharpe (Unconstrained)": _to_dict(arrays["max_sharpe"]),
+        "Balanced (40% Cap)": _to_dict(arrays["balanced"]),
     }
 
-    if ctx.sector_map and (ctx.sector_caps or ctx.sector_mins):
-        logger.info("Optimizing for Sector Balanced Portfolio...")
-        sec_bal_weights_arr = find_optimal_portfolio(objective_neg_sharpe, ctx.mean_returns, ctx.cov_matrix, bounds_uncon, cons_sector, ctx.risk_free_rate)
-        weights_collection["Sector Balanced"] = {t: w for t, w in zip(ctx.friendly_tickers, sec_bal_weights_arr)}
+    if "sector" in arrays:
+        weights_collection["Sector Balanced"] = _to_dict(arrays["sector"])
 
     # 3. Run Advanced Optimizers (Silent fail if error)
     advanced_optims = [
@@ -234,7 +217,7 @@ def compute_optimization_analysis(ctx: ReportContext):
     for name, w_dict in weights_collection.items():
         eval_data[name] = get_portfolio_price(ctx.price_data_train[ctx.friendly_tickers], w_dict)
         # Compute per-strategy metrics via the numeric analytics core
-        bundle = _bundle_from_growth(eval_data[name], eval_data[ctx.friendly_benchmark])
+        bundle = bundle_from_growth(eval_data[name], eval_data[ctx.friendly_benchmark])
         m = compute_metrics(bundle, ctx.risk_free_rate)
         # Store for pie charts and rich info; metrics must be formatted strings for HTML display
         aligned_arr = np.array([w_dict.get(t, 0) for t in ctx.friendly_tickers])
@@ -263,13 +246,10 @@ def compute_optimization_analysis(ctx: ReportContext):
     excess_returns_df = daily_returns_df - (ctx.risk_free_rate / 252)
     rolling_sharpe_df = (excess_returns_df.rolling(60).mean() * 252) / (excess_returns_df.rolling(60).std() * np.sqrt(252))
 
-    # Drawdown: computed via compute_drawdown (the analytics core's canonical function)
+    # Drawdown: the canonical per-strategy underwater path (report_helpers)
     # applied to each Growth-of-$1 column in eval_data.
     cumulative_returns_df = eval_data
-    drawdown_df = pd.concat(
-        {col: compute_drawdown(cumulative_returns_df[col]).curve for col in cumulative_returns_df.columns},
-        axis=1,
-    )
+    drawdown_df = compute_drawdown_frame(cumulative_returns_df)
         
     frontier_curve = calculate_efficient_frontier_curve(ctx.mean_returns, ctx.cov_matrix)
 
