@@ -1,7 +1,8 @@
 import logging
 import pandas as pd
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Union
+from dataclasses import dataclass, field
+from html import escape
+from typing import Dict, List, Optional, Tuple, Union
 from datetime import datetime, timedelta
 
 from .data import get_data
@@ -10,6 +11,30 @@ from .analytics import PortfolioAnalytics
 from .providers import DataProvider, get_default_provider
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class DataQualityNotes:
+    """Silent input fallbacks applied while building a :class:`ReportContext`.
+
+    These adjustments change what the user asked for (a dropped holding, a
+    renormalized weight vector, a risk-free-rate fallback) and were previously
+    visible only in logs. Reports surface them via
+    :func:`data_quality_section` so the reader can see them (GH #4).
+    """
+
+    # Friendly tickers that returned no data and were excluded.
+    dropped_tickers: List[str] = field(default_factory=list)
+    # Surviving ticker -> (requested_weight, renormalized_weight).
+    weight_adjustments: Dict[str, Tuple[float, float]] = field(default_factory=dict)
+    # True when risk_free_rate="auto" but the live fetch fell back to the default.
+    rfr_fallback: bool = False
+    # The risk-free rate ultimately used (decimal, e.g. 0.02).
+    risk_free_rate: float = DEFAULT_RISK_FREE_RATE
+
+    def has_notes(self) -> bool:
+        """Whether any fallback fired (i.e. the report should show the banner)."""
+        return bool(self.dropped_tickers or self.weight_adjustments or self.rfr_fallback)
 
 @dataclass
 class ReportContext:
@@ -71,10 +96,19 @@ class ReportContext:
     # reuse it so the whole report draws from one source.
     data_provider: object = None
 
+    # Silent input fallbacks applied during construction (dropped tickers,
+    # renormalized weights, risk-free-rate fallback). Surfaced in reports.
+    data_quality: Optional[DataQualityNotes] = None
+
 def _resolve_dates_and_rfr(train_start: str, train_end: str,
                            risk_free_rate: Union[float, str],
                            provider: Optional[DataProvider] = None):
-    """Shared step 1+2: date resolution and risk-free-rate resolution."""
+    """Shared step 1+2: date resolution and risk-free-rate resolution.
+
+    Also reports ``rfr_is_fallback``: True when ``risk_free_rate="auto"`` but
+    the live fetch returned the hardcoded default (i.e. the network lookup
+    almost certainly failed), so reports can flag the 2% assumption.
+    """
     test_start_dt = pd.to_datetime(train_end) + timedelta(days=1)
     test_end_dt = datetime.now() - timedelta(days=1)
     test_start = test_start_dt.strftime('%Y-%m-%d')
@@ -82,14 +116,19 @@ def _resolve_dates_and_rfr(train_start: str, train_end: str,
     full_start = train_start
     full_end = test_end
 
+    rfr_is_fallback = False
     if isinstance(risk_free_rate, str) and risk_free_rate.lower() == 'auto':
         rfr = get_risk_free_rate(provider=provider)
+        # The provider swallows failures and returns DEFAULT_RISK_FREE_RATE, so
+        # an exact match to the default is our signal that the live fetch failed.
+        rfr_is_fallback = (rfr == DEFAULT_RISK_FREE_RATE)
     elif isinstance(risk_free_rate, (int, float)):
         rfr = float(risk_free_rate)
     else:
         rfr = DEFAULT_RISK_FREE_RATE
+        rfr_is_fallback = True
 
-    return test_start, test_end, full_start, full_end, rfr
+    return test_start, test_end, full_start, full_end, rfr, rfr_is_fallback
 
 
 def _resolve_friendly_names(portfolio_dict: Dict[str, float], benchmark_ticker: str,
@@ -144,7 +183,8 @@ def _assemble_context(price_data_full: pd.DataFrame,
                       rebalance_freq: Optional[str],
                       denoise_cov: bool,
                       n_components: int,
-                      data_provider: Optional[DataProvider] = None) -> ReportContext:
+                      data_provider: Optional[DataProvider] = None,
+                      rfr_is_fallback: bool = False) -> ReportContext:
     """
     Post-fetch assembly: rename columns, drop missing tickers, renormalize weights,
     split train/test, compute optimization inputs, construct and return ReportContext.
@@ -153,6 +193,9 @@ def _assemble_context(price_data_full: pd.DataFrame,
     """
     # Work on a copy so we don't mutate the caller's data
     price_data_full = price_data_full.copy()
+
+    # Record any silent fallbacks applied below so reports can surface them.
+    data_quality = DataQualityNotes(rfr_fallback=rfr_is_fallback, risk_free_rate=rfr)
 
     # Apply display names to columns (only needed when display_names were provided)
     if display_names:
@@ -171,17 +214,28 @@ def _assemble_context(price_data_full: pd.DataFrame,
             raise ValueError(f"Benchmark ticker {friendly_benchmark} failed to download. Cannot proceed.")
         ordered_cols = friendly_tickers + ([friendly_benchmark] if friendly_benchmark not in friendly_tickers else [])
 
+        # Record the dropped holdings (everything missing except the benchmark,
+        # which would have raised above).
+        data_quality.dropped_tickers = [c for c in missing_cols if c != friendly_benchmark]
+
         # Update weights to handle dropped assets
         valid_tickers_original = (
             [t for t in tickers if display_names.get(t, t) in friendly_tickers]
             if display_names else list(friendly_tickers)
         )
         total_valid_weight = sum([portfolio_dict[t] for t in valid_tickers_original])
+        # Capture requested weights before renormalizing so the report can show old -> new.
+        requested_weights = {
+            t: w for t, w in user_friendly_weights.items() if t in friendly_tickers
+        }
         for ticker in list(user_friendly_weights.keys()):
             if ticker not in friendly_tickers:
                 del user_friendly_weights[ticker]
         for ticker in user_friendly_weights:
             user_friendly_weights[ticker] /= total_valid_weight
+        data_quality.weight_adjustments = {
+            t: (requested_weights[t], user_friendly_weights[t]) for t in user_friendly_weights
+        }
 
         tickers = valid_tickers_original
 
@@ -239,6 +293,7 @@ def _assemble_context(price_data_full: pd.DataFrame,
         denoise_cov=denoise_cov,
         n_components=n_components,
         data_provider=data_provider,
+        data_quality=data_quality,
     )
     ctx.analytics = PortfolioAnalytics(ctx)
     return ctx
@@ -270,7 +325,7 @@ def build_context(portfolio_dict: Dict[str, float], benchmark_ticker: str,
     provider = data_provider if data_provider is not None else get_default_provider()
 
     # 1+2. Date and risk-free-rate resolution
-    test_start, test_end, full_start, full_end, rfr = _resolve_dates_and_rfr(
+    test_start, test_end, full_start, full_end, rfr, rfr_is_fallback = _resolve_dates_and_rfr(
         train_start, train_end, risk_free_rate, provider=provider
     )
 
@@ -313,6 +368,7 @@ def build_context(portfolio_dict: Dict[str, float], benchmark_ticker: str,
         denoise_cov=denoise_cov,
         n_components=n_components,
         data_provider=provider,
+        rfr_is_fallback=rfr_is_fallback,
     )
 
 
@@ -348,7 +404,7 @@ def build_context_from_prices(price_data_full: pd.DataFrame,
     provider = data_provider if data_provider is not None else get_default_provider()
 
     # 1+2. Date and risk-free-rate resolution (identical to build_context)
-    test_start, test_end, full_start, full_end, rfr = _resolve_dates_and_rfr(
+    test_start, test_end, full_start, full_end, rfr, rfr_is_fallback = _resolve_dates_and_rfr(
         train_start, train_end, risk_free_rate, provider=provider
     )
 
@@ -386,4 +442,57 @@ def build_context_from_prices(price_data_full: pd.DataFrame,
         denoise_cov=denoise_cov,
         n_components=n_components,
         data_provider=provider,
+        rfr_is_fallback=rfr_is_fallback,
     )
+
+
+def data_quality_section(ctx) -> Optional[dict]:
+    """Build a "Data Quality Notes" report section from ``ctx.data_quality``.
+
+    Returns a section dict (banner) when any silent fallback fired during
+    context construction, or ``None`` when the inputs were used as-is. The
+    banner is emitted as a ``table_html`` item (raw HTML) so it renders in the
+    existing :func:`~quant_reporter.html_builder.generate_html_report` pipeline.
+    """
+    notes = getattr(ctx, "data_quality", None)
+    if notes is None or not notes.has_notes():
+        return None
+
+    rows = []
+    if notes.dropped_tickers:
+        dropped = ", ".join(escape(str(t)) for t in notes.dropped_tickers)
+        rows.append(
+            f"<li><strong>Dropped tickers:</strong> {dropped} returned no data "
+            f"and were excluded from the analysis.</li>"
+        )
+    if notes.weight_adjustments:
+        moves = ", ".join(
+            f"{escape(str(t))} {old:.1%} &rarr; {new:.1%}"
+            for t, (old, new) in notes.weight_adjustments.items()
+        )
+        rows.append(
+            f"<li><strong>Weights renormalized:</strong> the remaining holdings "
+            f"were rescaled to sum to 100% ({moves}).</li>"
+        )
+    if notes.rfr_fallback:
+        rows.append(
+            f"<li><strong>Risk-free rate:</strong> the live T-bill fetch was "
+            f"unavailable, so the {notes.risk_free_rate:.2%} default was used.</li>"
+        )
+
+    banner = (
+        '<div style="background:#FFF3CD;border:1px solid #FFE69C;border-radius:8px;'
+        'padding:12px 16px;color:#664D03;">'
+        '<p style="margin:0 0 8px 0;"><strong>&#9888; Heads up:</strong> the report '
+        'applied the following fallbacks to your inputs.</p>'
+        f'<ul style="margin:0;padding-left:20px;">{"".join(rows)}</ul>'
+        '</div>'
+    )
+    return {
+        "title": "Data Quality Notes",
+        "description": "Automatic adjustments applied while preparing the data. "
+                       "Review these before acting on the results.",
+        "main_content": [
+            {"title": "Fallbacks Applied", "type": "table_html", "data": banner}
+        ],
+    }
