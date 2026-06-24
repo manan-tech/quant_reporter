@@ -81,6 +81,23 @@ def test_clean_inputs_produce_no_section():
     assert data_quality_section(ctx) is None
 
 
+def test_rfr_only_fallback_banner_degrades_cleanly():
+    # All tickers present (no drops/renormalization) but the auto RFR fetch
+    # returns the default -> the banner shows only the risk-free-rate note.
+    ctx = _dropping_ctx(drop=None, rfr=DEFAULT_RISK_FREE_RATE)
+    dq = ctx.data_quality
+    assert dq.dropped_tickers == []
+    assert dq.weight_adjustments == {}
+    assert dq.rfr_fallback is True
+
+    section = data_quality_section(ctx)
+    assert section is not None
+    html = section["main_content"][0]["data"]
+    assert "Risk-free rate" in html
+    assert "Dropped tickers" not in html
+    assert "Weights renormalized" not in html
+
+
 # ---------------------------------------------------------------------------
 # Rendering: the section is built and carries the right content
 # ---------------------------------------------------------------------------
