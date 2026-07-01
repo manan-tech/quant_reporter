@@ -57,15 +57,16 @@ def min_track_record_length(returns, sr_target=0.0, prob=0.95, periods_per_year=
     return 1.0 + max(var_factor, 0.0) * (z / (sr - sr_star_pp)) ** 2
 
 
-def min_backtest_length(n_trials, sr_target_annual=1.0, periods_per_year=252):
+def min_backtest_length(n_trials, sr_target_annual=1.0):
     """Minimum Backtest Length (in years) before ``n_trials`` fake ``sr_target_annual``.
 
     The expected maximum Sharpe of ``n_trials`` skill-less i.i.d. strategies grows
     like ``Z_N / sqrt(T)``; solving for the horizon at which that expected fluke
     stays below the annualized target gives ``MinBTL = (Z_N / sr_target_annual)**2``
     years, where ``Z_N`` is the expected maximum of ``n_trials`` standard normals.
-    One trial cannot be an overfit selection, so returns 0.0. Returns ``nan`` for a
-    non-positive target.
+    The result is intrinsically in years (annualized Sharpe over a horizon), so no
+    periods-per-year factor is needed. One trial cannot be an overfit selection, so
+    returns 0.0. Returns ``nan`` for a non-positive target.
     """
     if sr_target_annual <= 0:
         return float("nan")
