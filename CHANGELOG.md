@@ -6,6 +6,15 @@ All notable changes to `quant_reporter` are documented here. This project follow
 ## [Unreleased]
 
 ### Added
+- **No-forecast allocation switch on the recommendation path** (GH #7). `recommend_weights`,
+  `recommend`, and `walk_forward_recommendation` accept an opt-in `method=` — `"optimize"` (default,
+  objective-based, uses expected returns) or the no-forecast allocators `"min_variance"`,
+  `"risk_parity"`, and `"max_diversification"` that allocate from the covariance alone (the honest
+  "we don't forecast returns" stance for the dominant source of optimizer error). The default
+  preserves prior behavior; the chosen method and a `uses_return_forecast` flag are recorded in the
+  recommendation `evidence`, and the rationale states the no-forecast assumption plainly.
+  `risk_parity`/`max_diversification` use their own risk-based allocation and do not honor
+  `bounds`/`constraints`/`profile` (only `optimize`/`min_variance` do).
 - **Covariance-estimator switch on the recommendation path** (GH #6). `recommend_weights`,
   `recommend`, and `walk_forward_recommendation` accept an opt-in `cov_method=` — `"sample"`
   (default), `"ledoit_wolf"` (Ledoit-Wolf constant-correlation shrinkage), or `"denoise"`
