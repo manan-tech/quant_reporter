@@ -4,7 +4,10 @@ import logging
 logging.getLogger('quant_reporter').addHandler(logging.NullHandler())
 
 # --- Data provider abstraction (swap yfinance for Bloomberg, CSV, etc.) ---
-from .providers import DataProvider, YFinanceProvider, get_default_provider, set_default_provider
+from .providers import (
+    DataProvider, YFinanceProvider, get_default_provider, set_default_provider,
+    RiskFreeRateUnavailable,
+)
 
 
 def enable_logging(level=logging.INFO):

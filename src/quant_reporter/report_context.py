@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from .data import get_data
 from .opt_core import get_risk_free_rate, get_optimization_inputs, DEFAULT_RISK_FREE_RATE
 from .analytics import PortfolioAnalytics
-from .providers import DataProvider, get_default_provider
+from .providers import DataProvider, get_default_provider, RiskFreeRateUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -105,9 +105,11 @@ def _resolve_dates_and_rfr(train_start: str, train_end: str,
                            provider: Optional[DataProvider] = None):
     """Shared step 1+2: date resolution and risk-free-rate resolution.
 
-    Also reports ``rfr_is_fallback``: True when ``risk_free_rate="auto"`` but
-    the live fetch returned the hardcoded default (i.e. the network lookup
-    almost certainly failed), so reports can flag the 2% assumption.
+    Also reports ``rfr_is_fallback``: True when ``risk_free_rate="auto"`` but the
+    live fetch actually failed. The signal is explicit — a provider that exposes
+    ``fetch_risk_free_rate`` raises :class:`RiskFreeRateUnavailable` on failure —
+    so a genuine live rate that happens to equal the 2% default is not mistaken
+    for a fallback (GH #22).
     """
     test_start_dt = pd.to_datetime(train_end) + timedelta(days=1)
     test_end_dt = datetime.now() - timedelta(days=1)
@@ -118,10 +120,16 @@ def _resolve_dates_and_rfr(train_start: str, train_end: str,
 
     rfr_is_fallback = False
     if isinstance(risk_free_rate, str) and risk_free_rate.lower() == 'auto':
-        rfr = get_risk_free_rate(provider=provider)
-        # The provider swallows failures and returns DEFAULT_RISK_FREE_RATE, so
-        # an exact match to the default is our signal that the live fetch failed.
-        rfr_is_fallback = (rfr == DEFAULT_RISK_FREE_RATE)
+        p = provider if provider is not None else get_default_provider()
+        try:
+            # Prefer an explicit fetch that raises on failure over inferring the
+            # fallback from the returned value; providers without one degrade to
+            # the swallowing get_risk_free_rate (no false positive on a 2% rate).
+            fetch = getattr(p, "fetch_risk_free_rate", None)
+            rfr = fetch() if callable(fetch) else get_risk_free_rate(provider=p)
+        except RiskFreeRateUnavailable:
+            rfr = DEFAULT_RISK_FREE_RATE
+            rfr_is_fallback = True
     elif isinstance(risk_free_rate, (int, float)):
         rfr = float(risk_free_rate)
     else:

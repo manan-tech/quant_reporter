@@ -7,7 +7,7 @@ fallbacks are surfaced in the report instead of only in logs.
 """
 
 from conftest import make_synthetic_prices
-from quant_reporter.providers import DEFAULT_RISK_FREE_RATE
+from quant_reporter.providers import DEFAULT_RISK_FREE_RATE, RiskFreeRateUnavailable
 from quant_reporter.report_context import (
     build_context,
     build_context_from_prices,
@@ -27,16 +27,24 @@ class _DroppingProvider:
     network access. ``rfr`` controls the risk-free rate returned for "auto".
     """
 
-    def __init__(self, drop="CCC", rfr=DEFAULT_RISK_FREE_RATE):
+    def __init__(self, drop="CCC", rfr=DEFAULT_RISK_FREE_RATE, rfr_fails=False):
         self._drop = drop
         self._rfr = rfr
+        self._rfr_fails = rfr_fails
 
     def get_prices(self, tickers, start, end):
         prices = make_synthetic_prices()  # AAA, BBB, CCC, BMK
         return prices[[c for c in prices.columns if c != self._drop]]
 
-    def get_risk_free_rate(self):
+    def fetch_risk_free_rate(self):
+        # Models the default provider's explicit fetch: raise when the live
+        # lookup fails, otherwise return the successfully-fetched rate.
+        if self._rfr_fails:
+            raise RiskFreeRateUnavailable("simulated live fetch failure")
         return self._rfr
+
+    def get_risk_free_rate(self):
+        return DEFAULT_RISK_FREE_RATE if self._rfr_fails else self._rfr
 
 
 def _dropping_ctx(**kw):
@@ -64,10 +72,22 @@ def test_dropped_ticker_recorded_and_weights_renormalized():
     assert dq.has_notes()
 
 
-def test_rfr_fallback_flagged_only_on_default():
-    # Provider returns the 2% default -> flagged as a fallback under "auto".
-    assert _dropping_ctx(rfr=DEFAULT_RISK_FREE_RATE).data_quality.rfr_fallback is True
-    # A live-looking rate is not flagged.
+def test_live_rate_equal_to_default_is_not_flagged():
+    # GH #22: a *successful* live fetch that genuinely returns the 2% default
+    # must NOT be reported as a fallback (the old value-based heuristic wrongly
+    # flagged it). rfr_fallback keys off fetch failure, not the numeric value.
+    ctx = _dropping_ctx(rfr=DEFAULT_RISK_FREE_RATE)
+    assert ctx.data_quality.risk_free_rate == DEFAULT_RISK_FREE_RATE
+    assert ctx.data_quality.rfr_fallback is False
+
+
+def test_failed_fetch_is_flagged_as_fallback():
+    # GH #22: fallback is flagged iff the live fetch actually failed, and it
+    # falls back to the 2% default when it does.
+    ctx = _dropping_ctx(rfr_fails=True)
+    assert ctx.data_quality.rfr_fallback is True
+    assert ctx.data_quality.risk_free_rate == DEFAULT_RISK_FREE_RATE
+    # A successful live rate that isn't the default is likewise not flagged.
     assert _dropping_ctx(rfr=0.045).data_quality.rfr_fallback is False
 
 
@@ -83,8 +103,8 @@ def test_clean_inputs_produce_no_section():
 
 def test_rfr_only_fallback_banner_degrades_cleanly():
     # All tickers present (no drops/renormalization) but the auto RFR fetch
-    # returns the default -> the banner shows only the risk-free-rate note.
-    ctx = _dropping_ctx(drop=None, rfr=DEFAULT_RISK_FREE_RATE)
+    # fails -> the banner shows only the risk-free-rate note.
+    ctx = _dropping_ctx(drop=None, rfr_fails=True)
     dq = ctx.data_quality
     assert dq.dropped_tickers == []
     assert dq.weight_adjustments == {}
@@ -103,7 +123,7 @@ def test_rfr_only_fallback_banner_degrades_cleanly():
 # ---------------------------------------------------------------------------
 
 def test_data_quality_section_content():
-    section = data_quality_section(_dropping_ctx())
+    section = data_quality_section(_dropping_ctx(rfr_fails=True))
     assert section is not None
     assert section["title"] == "Data Quality Notes"
     html = section["main_content"][0]["data"]
@@ -121,7 +141,7 @@ def test_portfolio_report_html_shows_notes(tmp_path):
     out = tmp_path / "Portfolio_Report.html"
     create_portfolio_report(
         PORTFOLIO, "BMK", "2021-01-01", "2022-12-31",
-        filename=str(out), data_provider=_DroppingProvider(),
+        filename=str(out), data_provider=_DroppingProvider(rfr_fails=True),
     )
     html = out.read_text(encoding="utf-8")
     assert "Data Quality Notes" in html
