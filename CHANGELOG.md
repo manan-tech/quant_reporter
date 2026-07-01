@@ -5,6 +5,12 @@ All notable changes to `quant_reporter` are documented here. This project follow
 
 ## [Unreleased]
 
+### Added
+- **Explicit risk-free-rate failure signal** (GH #22). `YFinanceProvider` now exposes
+  `fetch_risk_free_rate()`, which raises the new `RiskFreeRateUnavailable` when the live
+  T-bill lookup fails, and the exception is exported from the package top level. Custom
+  providers may raise it to opt into the same explicit fallback flagging.
+
 ### Changed
 - **Unified Sortino definition.** The realized-metrics block (`analytics.compute_metrics`,
   which powers the portfolio/combined reports) now uses the canonical `metrics.sortino`
@@ -13,6 +19,13 @@ All notable changes to `quant_reporter` are documented here. This project follow
   values may shift slightly as a result.
 
 ### Fixed
+- **Risk-free-rate fallback detection is now explicit instead of heuristic** (GH #22).
+  The "Data Quality Notes" banner previously inferred the 2% fallback by comparing the
+  returned rate to the default, so a genuine live rate of ~2.00% was wrongly flagged as a
+  fallback. The report layer now keys off an actual failed fetch (`fetch_risk_free_rate`
+  raising `RiskFreeRateUnavailable`), so the flag is set iff the live lookup really failed.
+  `get_risk_free_rate()` is unchanged (still returns the 2% default on failure), so existing
+  callers are unaffected.
 - HTML reports now HTML-escape section/item titles and descriptions, so a `&`/`<` in a
   ticker display name or label no longer breaks the markup (`html_builder.py`).
 
