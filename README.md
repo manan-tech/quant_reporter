@@ -57,6 +57,7 @@ That's the whole loop: a `{ticker: weight}` dict in, an interactive report out. 
 | *Which strategy actually holds up out-of-sample?* | **Strategy backtesting (2.1)**: cost-aware walk-forward `backtest`/`backtest_many`, honest PSR/DSR out-of-sample stats, interactive backtest report |
 | *What should I do about it?* (opt-in) | **Recommendation layer (2.1)**: recommended target weights, a rebalance trade list, risk-limit alerts, and a strategy verdict — each with its rationale & evidence |
 | *Does this suit my goals, and does it hold up out-of-sample?* (opt-in) | **Decision-support layer (2.2)**: a CFA-grounded investor `Profile` that constrains the optimizer and sets alert thresholds, plus walk-forward validation of the recommendation (in-sample vs OOS Sharpe + a holds-up / fragile verdict) |
+| *Is this backtest result real, or did I overfit picking it?* | **Backtest honesty (2.3)**: Probability of Backtest Overfitting (PBO via CSCV), Minimum Track Record / Backtest Length, and a one-call overfitting verdict that deflates the Sharpe for the number of trials you ran |
 
 The 2.0 report generators are descriptive analytics on daily historical data — a decision-support and communication tool. **2.1 adds a cost-aware, walk-forward backtest engine, a composable strategy layer, and an opt-in recommendation layer** (see [Strategy backtesting & recommendations](#strategy-backtesting--recommendations-21)). Monte Carlo assumes Geometric Brownian Motion (thin tails — it understates crash risk), and reports depend on live `yfinance` data.
 
@@ -275,6 +276,33 @@ rec.to_html("Recommendation.html")    # transparent HTML section
 The four pieces are also standalone — `qr.recommend_weights`, `qr.rebalance_trades`,
 `qr.risk_alerts`, `qr.compare_verdict` — and a recommendation can be embedded directly into a
 backtest report: `res.report("Backtest.html", recommendation=rec)`.
+
+### Backtest honesty — is this result real, or overfit? (2.3)
+
+When you try many strategy configurations and keep the best, its backtest is biased upward.
+This layer measures that bias directly. Pass the return streams of the configurations you
+tried (e.g. from `backtest_many` over a parameter set) and get a one-call verdict:
+
+```python
+report = qr.assess_overfitting(returns_matrix=config_returns)  # (T periods × N configs)
+report.verdict   # 'robust' | 'caution' | 'likely_overfit' | 'inconclusive'
+report.pbo       # Probability of Backtest Overfitting (CSCV) — how often the in-sample
+                 # winner lands at/below the out-of-sample median
+print(report.to_text())
+sections = [qr.overfitting_section(report)]   # embeddable HTML report section
+```
+
+The pieces are also standalone:
+
+```python
+qr.probability_of_backtest_overfitting(config_returns, n_splits=16)  # PBOResult
+qr.min_track_record_length(returns, prob=0.95)   # observations needed for a significant Sharpe
+qr.min_backtest_length(n_trials=100, sr_target_annual=1.0)  # years before N trials fake a Sharpe
+```
+
+The thresholds behind the verdict are documented heuristics, not decision rules — read them
+alongside the strategy logic. Refs: Bailey & López de Prado, *Deflated Sharpe Ratio* and
+*The Probability of Backtest Overfitting*.
 
 ---
 
