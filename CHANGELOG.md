@@ -6,6 +6,14 @@ All notable changes to `quant_reporter` are documented here. This project follow
 ## [Unreleased]
 
 ### Added
+- **Backtest-honesty / overfitting diagnostics (`overfitting.py`).** A new module that
+  flags when a backtest is likely a fluke: `probability_of_backtest_overfitting` (PBO via
+  Combinatorially Symmetric Cross-Validation), `min_track_record_length` (MinTRL),
+  `min_backtest_length` (MinBTL), and a one-call `assess_overfitting` verdict
+  (`robust` / `caution` / `likely_overfit` / `inconclusive`) that bundles PBO with the
+  deflated Sharpe ratio and MinTRL. `overfitting_section` renders the verdict as an
+  embeddable report section. Consume-only, offline, no new dependencies. Refs: Bailey &
+  López de Prado, *Deflated Sharpe Ratio* / *Probability of Backtest Overfitting*.
 - **No-forecast allocation switch on the recommendation path** (GH #7). `recommend_weights`,
   `recommend`, and `walk_forward_recommendation` accept an opt-in `method=` — `"optimize"` (default,
   objective-based, uses expected returns) or the no-forecast allocators `"min_variance"`,

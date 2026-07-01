@@ -154,6 +154,17 @@ from .performance_stats import (
     compare_strategies_oos,
 )
 
+# --- Backtest honesty (overfitting diagnostics) ---
+from .overfitting import (
+    probability_of_backtest_overfitting,
+    PBOResult,
+    min_track_record_length,
+    min_backtest_length,
+    assess_overfitting,
+    OverfittingReport,
+    overfitting_section,
+)
+
 # --- Walk-Forward (schedule unlock) ---
 from .validation_report import run_rolling_windows
 
