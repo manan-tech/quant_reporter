@@ -54,6 +54,20 @@ def _dropping_ctx(**kw):
     )
 
 
+class _LegacyProvider:
+    """A pre-#22 provider implementing only the DataProvider protocol (no
+    explicit ``fetch_risk_free_rate``). Exercises the degrade path."""
+
+    def __init__(self, rfr=DEFAULT_RISK_FREE_RATE):
+        self._rfr = rfr
+
+    def get_prices(self, tickers, start, end):
+        return make_synthetic_prices()
+
+    def get_risk_free_rate(self):
+        return self._rfr
+
+
 # ---------------------------------------------------------------------------
 # Context-level: the fallbacks are recorded on ctx.data_quality
 # ---------------------------------------------------------------------------
@@ -89,6 +103,18 @@ def test_failed_fetch_is_flagged_as_fallback():
     assert ctx.data_quality.risk_free_rate == DEFAULT_RISK_FREE_RATE
     # A successful live rate that isn't the default is likewise not flagged.
     assert _dropping_ctx(rfr=0.045).data_quality.rfr_fallback is False
+
+
+def test_provider_without_explicit_fetch_is_not_false_flagged():
+    # A legacy provider lacking fetch_risk_free_rate degrades to the swallowing
+    # get_risk_free_rate; a returned 2% is NOT flagged (we no longer infer a
+    # fallback from the value, so no false positive).
+    ctx = build_context(
+        PORTFOLIO, "BMK", train_start="2021-01-01", train_end="2022-12-31",
+        data_provider=_LegacyProvider(rfr=DEFAULT_RISK_FREE_RATE),
+    )
+    assert ctx.data_quality.rfr_fallback is False
+    assert ctx.data_quality.risk_free_rate == DEFAULT_RISK_FREE_RATE
 
 
 def test_clean_inputs_produce_no_section():

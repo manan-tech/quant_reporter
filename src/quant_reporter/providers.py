@@ -100,20 +100,25 @@ class YFinanceProvider:
 
         try:
             tbill = yf.download("^IRX", period="5d", threads=False)
+            if tbill.empty:
+                raise RiskFreeRateUnavailable("^IRX returned no data")
+            close = tbill["Close"]
+            if not hasattr(close, "iloc"):
+                raise RiskFreeRateUnavailable("^IRX response missing a 'Close' series")
+            usable = close.dropna()
+            if usable.empty:
+                raise RiskFreeRateUnavailable("^IRX 'Close' series had no usable values")
+            val = usable.iloc[-1]
+            if hasattr(val, "item"):
+                val = val.item()
+            return float(val) / 100.0
+        except RiskFreeRateUnavailable:
+            raise
         except Exception as exc:
-            raise RiskFreeRateUnavailable(f"^IRX download failed: {exc}") from exc
-        if tbill.empty:
-            raise RiskFreeRateUnavailable("^IRX returned no data")
-        close = tbill["Close"]
-        if not hasattr(close, "iloc"):
-            raise RiskFreeRateUnavailable("^IRX response missing a 'Close' series")
-        usable = close.dropna()
-        if usable.empty:
-            raise RiskFreeRateUnavailable("^IRX 'Close' series had no usable values")
-        val = usable.iloc[-1]
-        if hasattr(val, "item"):
-            val = val.item()
-        return float(val) / 100.0
+            # Any other failure (network error, malformed/renamed columns, parse
+            # error) is surfaced as RiskFreeRateUnavailable so this method only
+            # ever raises that type — callers can rely on a single failure mode.
+            raise RiskFreeRateUnavailable(f"^IRX lookup failed: {exc}") from exc
 
     def get_risk_free_rate(self) -> float:
         """Live T-bill rate as a decimal, falling back to the default on failure.

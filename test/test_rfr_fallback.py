@@ -27,3 +27,16 @@ def test_fetch_raises_but_get_swallows(monkeypatch):
     with pytest.raises(RiskFreeRateUnavailable):
         p.fetch_risk_free_rate()
     assert p.get_risk_free_rate() == DEFAULT_RISK_FREE_RATE
+
+
+def test_fetch_wraps_parsing_errors_as_unavailable(monkeypatch):
+    # A malformed response (no 'Close' column) must surface as
+    # RiskFreeRateUnavailable, not a raw KeyError that bypasses the fallback
+    # path and leaks to callers.
+    import pandas as pd
+    import yfinance as yf
+    monkeypatch.setattr(yf, "download", lambda *a, **k: pd.DataFrame({"Open": [1.0, 2.0]}))
+    p = prov.YFinanceProvider()
+    with pytest.raises(RiskFreeRateUnavailable):
+        p.fetch_risk_free_rate()
+    assert p.get_risk_free_rate() == DEFAULT_RISK_FREE_RATE
