@@ -18,7 +18,9 @@ import pandas as pd
 from .opt_core import (
     get_optimization_inputs, get_portfolio_stats, find_optimal_portfolio,
     build_constraints, get_portfolio_price, risk_contributions,
+    objective_min_variance,
 )
+from .advanced_optimizers import optimize_risk_parity, optimize_max_diversification
 from .robust_estimators import ledoit_wolf_covariance
 from .objectives import neg_sharpe
 from .backtest import portfolio_turnover, transaction_cost_model
@@ -70,21 +72,51 @@ def _covariance_inputs(prices, cov_method="sample", n_components=3):
         f"Unknown cov_method {cov_method!r}; expected one of {COV_METHODS}.")
 
 
+# Allocators that ignore expected returns entirely (the "we don't forecast
+# returns" stance). "optimize" (the default) is the objective-based path.
+NO_FORECAST_METHODS = ("min_variance", "risk_parity", "max_diversification")
+METHODS = ("optimize",) + NO_FORECAST_METHODS
+
+
+def _optimize_weights(method, objective, mean, cov, bounds, constraints, risk_free_rate):
+    """Weight vector for the chosen allocation `method`.
+
+    ``"optimize"`` runs the objective-based optimizer (uses expected returns via
+    `objective`). The no-forecast methods use only the covariance: ``"min_variance"``
+    honors `bounds`/`constraints` through the shared SLSQP path, while
+    ``"risk_parity"`` and ``"max_diversification"`` use their own risk-based
+    allocation and therefore do NOT honor `bounds`/`constraints`/`profile`.
+    """
+    if method == "optimize":
+        return find_optimal_portfolio(objective, mean, cov, bounds, constraints, risk_free_rate)
+    if method == "min_variance":
+        return find_optimal_portfolio(objective_min_variance, mean, cov, bounds,
+                                      constraints, risk_free_rate)
+    if method == "risk_parity":
+        return optimize_risk_parity(cov)
+    if method == "max_diversification":
+        return optimize_max_diversification(cov)
+    raise ValueError(f"Unknown method {method!r}; expected one of {METHODS}.")
+
+
 def recommend_weights(prices, *, objective=neg_sharpe, bounds=None, constraints=None,
                       profile=None, sector_map=None, risk_free_rate=0.02,
-                      cov_method="sample", n_components=3):
-    """Point-in-time optimal target weights from a single objective.
+                      cov_method="sample", n_components=3, method="optimize"):
+    """Point-in-time optimal target weights.
 
-    Optimizes `objective` over all columns of `prices` on the canonical
-    (get_optimization_inputs) basis. Distinct from compare_verdict's
-    backtest-driven pick. When `profile` is given and `bounds`/`constraints`
-    are not supplied explicitly, they are derived from the profile via
-    planning.apply_constraints (explicit bounds/constraints always win).
+    `method` selects the allocator (default ``"optimize"`` — the objective-based
+    path that uses expected returns). The **no-forecast** methods ``"min_variance"``,
+    ``"risk_parity"``, and ``"max_diversification"`` allocate from the covariance
+    alone, sidestepping the fragile expected-return estimate. `objective` applies
+    only to ``"optimize"``. When `profile` is given and `bounds`/`constraints` are
+    not supplied explicitly, they are derived from the profile via
+    planning.apply_constraints (explicit bounds/constraints always win); note that
+    ``"risk_parity"``/``"max_diversification"`` do not honor those constraints.
 
     `cov_method` selects the covariance estimator fed to the optimizer
     (``"sample"`` (default), ``"ledoit_wolf"``, or ``"denoise"``); `n_components`
-    is the eigenvalue-clipping cutoff used only by ``"denoise"``. The default is
-    opt-in and preserves prior behavior — see :func:`_covariance_inputs`.
+    is the eigenvalue-clipping cutoff used only by ``"denoise"``. Both switches are
+    opt-in and preserve prior behavior — see :func:`_covariance_inputs`.
     """
     mean, cov, _, cov_info = _covariance_inputs(prices, cov_method, n_components)
     cols = list(cov.columns)
@@ -97,22 +129,33 @@ def recommend_weights(prices, *, objective=neg_sharpe, bounds=None, constraints=
     if constraints is None:
         constraints = build_constraints(n, cols)
     with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
-        w = find_optimal_portfolio(objective, mean, cov, bounds, constraints, risk_free_rate)
+        w = _optimize_weights(method, objective, mean, cov, bounds, constraints, risk_free_rate)
         port_ret, port_vol, sharpe = get_portfolio_stats(w, mean, cov, risk_free_rate)
     weights = {c: float(wi) for c, wi in zip(cols, np.asarray(w, dtype=float))}
     obj_name = getattr(objective, "__name__", str(objective))
-    rationale = (f"Weights chosen by optimizing the {obj_name} objective on the "
-                 f"{cov_method} covariance; resulting Sharpe {sharpe:.2f} "
-                 f"(return {port_ret:.2%}, vol {port_vol:.2%}; "
-                 f"annualized log-return basis).")
+    no_forecast = method in NO_FORECAST_METHODS
+    display_name = method if no_forecast else obj_name
+
+    if no_forecast:
+        rationale = (f"No-forecast allocation via {method}: expected returns are not "
+                     f"forecast; weights come from the {cov_method} covariance alone. "
+                     f"Resulting Sharpe {sharpe:.2f} (return {port_ret:.2%}, "
+                     f"vol {port_vol:.2%}; annualized log-return basis).")
+    else:
+        rationale = (f"Weights chosen by optimizing the {obj_name} objective on the "
+                     f"{cov_method} covariance; resulting Sharpe {sharpe:.2f} "
+                     f"(return {port_ret:.2%}, vol {port_vol:.2%}; "
+                     f"annualized log-return basis).")
     if "shrinkage" in cov_info:
         rationale += f" Ledoit-Wolf shrinkage delta={cov_info['shrinkage']:.2f}."
-    evidence = {"objective": obj_name, "sharpe": float(sharpe),
+
+    evidence = {"objective": display_name, "method": method,
+                "uses_return_forecast": not no_forecast, "sharpe": float(sharpe),
                 "expected_return": float(port_ret), "expected_vol": float(port_vol),
                 "basis": "annualized_log_return", "cov_method": cov_method}
     if cov_info:
         evidence["cov_info"] = cov_info
-    return RecommendedWeights(weights=weights, objective=obj_name,
+    return RecommendedWeights(weights=weights, objective=display_name,
                               rationale=rationale, evidence=evidence)
 
 
@@ -438,13 +481,14 @@ def recommend(prices, *, current_weights=None, objective=neg_sharpe, results=Non
               sector_map=None, sector_caps=None, factor_returns=None,
               factor_loading_limit=None, risk_free_rate=0.02,
               validate=False, window_years=1, step_months=3, max_degradation=0.5,
-              cov_method="sample", n_components=3):
+              cov_method="sample", n_components=3, method="optimize"):
     """Opt-in recommendation bundle. `prices` are asset prices only. Alerts run on
     `current_weights` when given, else on the recommended target.
 
-    `cov_method`/`n_components` select the covariance estimator for both the
-    recommended weights and (when `validate=True`) the walk-forward scoreboard;
-    the default (``"sample"``) preserves prior behavior.
+    `method` (allocator) and `cov_method`/`n_components` (covariance estimator)
+    select how the recommended weights — and, when `validate=True`, the
+    walk-forward scoreboard — are computed; the defaults (``"optimize"`` /
+    ``"sample"``) preserve prior behavior.
 
     When `profile` is supplied: it constrains the optimizer (via recommend_weights),
     fills the alert thresholds (vol_target, max_drawdown_limit, max_weight,
@@ -470,7 +514,8 @@ def recommend(prices, *, current_weights=None, objective=neg_sharpe, results=Non
 
     target = recommend_weights(prices, objective=objective, profile=profile,
                                sector_map=sector_map, risk_free_rate=risk_free_rate,
-                               cov_method=cov_method, n_components=n_components)
+                               cov_method=cov_method, n_components=n_components,
+                               method=method)
     trades = None
     if current_weights is not None:
         trades = rebalance_trades(current_weights, target.weights,
@@ -494,7 +539,7 @@ def recommend(prices, *, current_weights=None, objective=neg_sharpe, results=Non
             current_weights=current_weights, sector_map=sector_map,
             window_years=window_years, step_months=step_months,
             risk_free_rate=risk_free_rate, max_degradation=max_degradation,
-            cov_method=cov_method, n_components=n_components)
+            cov_method=cov_method, n_components=n_components, method=method)
     return Recommendation(target_weights=target, trades=trades, alerts=alerts,
                           verdict=verdict, suitability=suitability,
                           validation=validation)
@@ -513,7 +558,8 @@ def walk_forward_recommendation(prices, *, objective=neg_sharpe, profile=None,
                                 current_weights=None, sector_map=None,
                                 window_years=1, step_months=3,
                                 risk_free_rate=0.02, max_degradation=0.5,
-                                cov_method="sample", n_components=3):
+                                cov_method="sample", n_components=3,
+                                method="optimize"):
     """Walk-forward OOS validation of the recommendation on raw asset prices.
 
     At each rolling window the constrained recommendation is re-derived on the
@@ -521,10 +567,10 @@ def walk_forward_recommendation(prices, *, objective=neg_sharpe, profile=None,
     `current_weights` (if given) are validated as an OOS baseline. Returns a
     RecommendationValidation; verdict is degradation-based.
 
-    `cov_method`/`n_components` select the same covariance estimator as
-    :func:`recommend_weights`, so the OOS scoreboard reflects the estimator the
-    recommendation would actually use. The default (``"sample"``) reproduces the
-    prior behavior exactly.
+    `method` and `cov_method`/`n_components` select the same allocator and
+    covariance estimator as :func:`recommend_weights`, so the OOS scoreboard
+    reflects what the recommendation would actually use. The defaults
+    (``"optimize"`` / ``"sample"``) reproduce the prior behavior exactly.
     """
     from .validation_report import _rolling_oos_sharpe, calculate_overfitting_score
 
@@ -544,7 +590,7 @@ def walk_forward_recommendation(prices, *, objective=neg_sharpe, profile=None,
         # default is byte-for-byte unchanged.
         if cov_method != "sample":
             mean, cov, _, _ = _covariance_inputs(train[cols], cov_method, n_components)
-        arr = find_optimal_portfolio(obj, mean, cov, r_bounds, r_cons, risk_free_rate)
+        arr = _optimize_weights(method, obj, mean, cov, r_bounds, r_cons, risk_free_rate)
         return {t: float(w) for t, w in zip(cols, arr)}
 
     strategies = {"Recommended": _rec}
@@ -571,7 +617,7 @@ def walk_forward_recommendation(prices, *, objective=neg_sharpe, profile=None,
                            if "Current Sharpe" in rolling_df.columns else None)
 
     mean, cov, _, _ = _covariance_inputs(prices, cov_method, n_components)
-    final_arr = find_optimal_portfolio(obj, mean, cov, r_bounds, r_cons, risk_free_rate)
+    final_arr = _optimize_weights(method, obj, mean, cov, r_bounds, r_cons, risk_free_rate)
     final_w = {t: float(w) for t, w in zip(cols, final_arr)}
     is_metrics = _realized_metrics(prices, final_w, risk_free_rate)
     in_sample_sharpe = float(is_metrics.get("Realized Sharpe", float("nan")))
