@@ -24,6 +24,8 @@ def test_default_cov_method_is_sample_and_preserves_behavior():
     default = recommend_weights(prices)
     sample = recommend_weights(prices, cov_method="sample")
     assert default.evidence["cov_method"] == "sample"
+    # The sample path carries no estimator diagnostics.
+    assert "cov_info" not in default.evidence
     # Default must equal the explicit sample path weight-for-weight (no behavior change).
     for k in default.weights:
         assert default.weights[k] == pytest.approx(sample.weights[k], abs=1e-9)
@@ -41,11 +43,14 @@ def test_denoise_path_valid_and_records_method():
     rec = recommend_weights(_prices(), cov_method="denoise", n_components=2)
     assert _valid_weights(rec.weights)
     assert rec.evidence["cov_method"] == "denoise"
+    assert rec.evidence["cov_info"]["n_components"] == 2
 
 
 def test_invalid_cov_method_raises():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="bogus") as ei:
         recommend_weights(_prices(), cov_method="bogus")
+    # Error names the valid options so the caller can self-correct.
+    assert "ledoit_wolf" in str(ei.value)
 
 
 def test_walk_forward_accepts_cov_method():
