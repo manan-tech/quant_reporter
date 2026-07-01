@@ -6,6 +6,14 @@ All notable changes to `quant_reporter` are documented here. This project follow
 ## [Unreleased]
 
 ### Added
+- **Covariance-estimator switch on the recommendation path** (GH #6). `recommend_weights`,
+  `recommend`, and `walk_forward_recommendation` accept an opt-in `cov_method=` — `"sample"`
+  (default), `"ledoit_wolf"` (Ledoit-Wolf constant-correlation shrinkage), or `"denoise"`
+  (eigenvalue-clipping), with `n_components` tuning the denoise cutoff — wiring the already-shipped
+  robust estimators into the recommendation. The default preserves prior behavior byte-for-byte
+  (SemVer-safe); the estimator and its diagnostics (e.g. Ledoit-Wolf shrinkage) are recorded in the
+  recommendation `evidence`. Expected returns are unchanged (the raw annualized mean); the return
+  estimate is addressed separately by GH #7/#8.
 - **Explicit risk-free-rate failure signal** (GH #22). `YFinanceProvider` now exposes
   `fetch_risk_free_rate()`, which raises the new `RiskFreeRateUnavailable` when the live
   T-bill lookup fails, and the exception is exported from the package top level. Custom
